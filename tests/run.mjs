@@ -1,6 +1,7 @@
 // 自動完走・分岐テスト: node tests/run.mjs
 import * as E from "../js/engine.js";
 import { BOTS, applyBot } from "./bots.mjs";
+import * as I from "../js/insight.js";
 
 let fail = 0;
 const ok = (c, m) => { if (!c) { fail++; console.log("  ✗ " + m); } else console.log("  ✓ " + m); };
@@ -91,6 +92,62 @@ console.log("\n■ 5. 設計制約");
   s3.policy = { research: 100, care: 0, decom: 0, stop: 0, eco: 0, heritage: 0 };
   for (let i = 0; i < 40; i++) { for (const x of [s2, s3]) { E.tick(x); if (x.pending) E.choose(x, x.pending.choices[0].id); } }
   ok(E.total(s2) === E.total(s3), "2100年前は配分を変えても人口は変わらない");
+}
+
+console.log("\n■ 6. 砂時計(人類・AI)の整合性: 毎年検査");
+{
+  const bot = BOTS.ideal, s = E.newGame(5); let bad = 0, years = 0, dead = 0, stopped = 0, mono = true;
+  while (!s.ended && years < 2500) {
+    E.tick(s); if (s.pending) E.choose(s, bot.choices(s, s.pending)); applyBot(s, bot); years++;
+    const g = s.g, P = E.total(s);
+    if (Math.abs(g.P0 + g.hBorn - g.hDead - P) > 1e-6 * g.P0) bad++;      // 生存者 = 初期+出生-死亡
+    if (g.aiActive + g.aiStopped !== g.aiBuilt || g.aiActive < 0 || g.aiStopped < 0) bad++; // AI: 稼働+停止 = 累計新造(二重計上なし)
+    if (g.hDead < dead - 1e-6 || g.aiStopped < stopped) mono = false;     // 累計は減らない
+    dead = g.hDead; stopped = g.aiStopped;
+  }
+  ok(bad === 0, `${years}年すべてで 人類(初期+出生-死亡=生存) と AI(稼働+停止=新造累計) が一致`);
+  ok(mono, "累計死亡・累計停止は単調に増える(再計上・巻き戻しなし)");
+  ok(s.g.aiBuilt > s.g.aiStopped || s.g.aiActive === 0 || s.g.aiRemain, "AI累計の最終状態が妥当");
+  ok(Math.round(s.g.P0 + s.g.hBorn) - Math.round(E.total(s)) === Math.round(s.g.P0 + s.g.hBorn) , "絶滅後は生存者0、累計の全員が死亡側");
+  const s2 = E.newGame(5); for (let i = 0; i < 40; i++) { E.tick(s2); if (s2.pending) E.choose(s2, s2.pending.choices[0].id); }
+  const fb = s2.g.aiBuilt; s2.facs.filter(f => f.t === 4).forEach(f => { f.st = 1; }); s2.facs.filter(f => f.t === 4).forEach(f => { f.st = 0; });
+  ok(s2.g.aiBuilt === fb, "施設の停止→再稼働だけではAIの新造数は増えない(再稼働の二重計上なし)");
+  const lim = E.newGame(2); lim.g.mach = 100; let maxBuild = 0; for (let i = 0; i < 20; i++) { const a = lim.g.aiBuilt, act = lim.g.aiActive; E.stepAI(lim, false); maxBuild = Math.max(maxBuild, (lim.g.aiBuilt - a) / Math.max(1, act)); }
+  ok(maxBuild < .6, `AI新造は製造枠で制限される(年あたり最大 ${(maxBuild * 100).toFixed(0)}% 増)`);
+}
+
+console.log("\n■ 7. 遺産・政策選択による分岐・見込み・ボトルネック");
+{
+  const mk = (pol) => { const s = E.newGame(3), bot = BOTS.ideal; E.runToEnd(s, { choose: (st, p) => p.id === "heritage_review" ? pol : bot.choices(st, p), onYear: st => applyBot(st, bot) }); return s; };
+  const a = mk("protect"), b = mk("record"), c = mk("select");
+  const n = (s) => E.siteSummary(s).n;
+  ok(n(a)[1] > 20 && n(b)[2] > 20 && n(c)[3] > 5, `遺産の方針が反映される (保護${n(a)[1]} / 記録${n(b)[2]} / 自然還元${n(c)[3]})`);
+  ok(Math.abs(a.ended.scores.heritage - b.ended.scores.heritage) + Math.abs(a.ended.scores.nature - c.ended.scores.nature) > 0.5 || a.ended.scores.heritage !== c.ended.scores.heritage, "遺産の扱いで遺産評価・環境が変わる");
+  ok(E.SITES.some(d => d.real) && E.SITES.some(d => !d.real && d.type === "original"), "実在の世界遺産とゲーム独自候補を区別");
+  const base = E.newGame(4); while (base.year < 2100) { E.tick(base); if (base.pending) E.choose(base, base.pending.choices[0].id); }
+  if (base.pending) E.choose(base, base.pending.choices[0].id);
+  const dr = { policy: { ...E.PRESETS.research }, sovMode: "consent", machStance: "std", focus: "world" };
+  const pv = I.previewPolicy(base, dr);
+  const dd = I.diff(pv.rows[1].cur, pv.rows[1].alt);
+  ok(Object.values(dd).some(v => Math.abs(v) > .3), "方針変更の見込みが現状維持と異なる: " + I.fmtDiff(dd));
+  const bn = I.bottleneck(base); ok(bn.name && bn.cause.length > 10, `ボトルネックと原因を表示: ${bn.name} / ${bn.cause.slice(0, 30)}…`);
+  ok(Object.keys(I.metrics(base)).length === 7, "7指標(人口・幸福・安全性・環境・資源・AI安定性・遺産保護)");
+  const pend = E.newGame(6); while (!pend.pending) E.tick(pend); const pc = I.previewChoices(pend, 10);
+  ok(Object.keys(pc).length === pend.pending.choices.length, "重要イベントの全選択肢に即時/長期の見込み");
+  const logs = a.log.filter(l => l.k === "nar").length; ok(logs > 20, `状態に連動した情勢描写 ${logs} 件`);
+  ok(a.log.some(l => /縮退|人通り|旧市街|最後の集落/.test(l.t)), "都市の衰退・自然回復・最後の世代の描写が出る");
+  ok(a.chosen.some(x => x.e === "citydecline") && a.chosen.some(x => x.e === "heritage_review"), "世界の状態に連動したイベント(都市の縮退・遺産)が発生");
+  ok(JSON.stringify(a.log.filter(l => l.k === "nar").map(l => l.t)) !== JSON.stringify(results.passive.log.filter(l => l.k === "nar").map(l => l.t)), "選択が違えば描写も変わる");
+}
+
+console.log("\n■ 8. セーブ互換(v1セーブの読み込み)");
+{
+  const s = E.newGame(8); for (let i = 0; i < 60; i++) { E.tick(s); if (s.pending) E.choose(s, s.pending.choices[0].id); }
+  const old = JSON.parse(JSON.stringify(s)); old.v = 1; delete old.sites; for (const k of ["hBorn", "hDead", "aiActive", "aiBuilt", "aiStopped", "sitesBio", "hMod"]) delete old.g[k];
+  const m = E.migrate(old);
+  ok(m.v === 2 && m.sites.length === E.SITES.length && m.g.aiActive > 0, "旧セーブにも砂時計・遺産の項目が補われる");
+  ok(Math.abs(m.g.P0 + m.g.hBorn - m.g.hDead - E.total(m)) < 1e-3 * m.g.P0, "移行後も 人口=初期+出生-死亡 が成立");
+  E.runToEnd(m, { choose: BOTS.ideal.choices, onYear: st => applyBot(st, BOTS.ideal) }); ok(!!m.ended, "旧セーブから最後まで完走できる");
 }
 
 console.log(fail ? `\n失敗 ${fail} 件` : "\nすべて成功");

@@ -1,5 +1,8 @@
 // 世界の終活者 - シミュレーション本体(DOM非依存・JSONシリアライズ可能・乱数はシード固定)
 import { COUNTRY_DEFS, FACTYPES } from "./data.js";
+import { SITES, initSites, stepSites, siteScore, siteSummary, setSite, applySitePolicy, undecided } from "./heritage.js";
+import { cityNarratives, decadeNarrative, cityOf, era } from "./narrative.js";
+export { SITES, setSite, applySitePolicy, undecided, siteScore, siteSummary, era, cityOf };
 
 export const START_YEAR = 2020, DISCOVERY = 2050, CERTAIN = 2080, PROGRAM = 2100;
 export const CHANNELS = [
@@ -26,12 +29,12 @@ function rnd(s) { // mulberry32。状態をs.rngに保持
 // ---------- 初期化 ----------
 export function newGame(seed = 1) {
   const s = {
-    v: 1, seed, rng: seed | 0, year: START_YEAR, countries: [], facs: [], log: [], chosen: [],
+    v: 2, seed, rng: seed | 0, year: START_YEAR, countries: [], facs: [], log: [], chosen: [],
     pending: null, done: {}, flags: {}, ended: null, hist: [], post: 0,
     ai: { cap: 10, insight: 10, align: 20, trust: 55, sp: 0.1, focus: "world" },
     g: { pl: 40, bio: 78, scar: 0, res: 100, her: 100, rsr: 0, ark: 0, mach: 5, stopReady: 0, gdp0: 0, P0: 0,
       arch: 0, accidents: 0, wars: 0, sov: 1, overrides: 0, hpAcc: 0, hpW: 0, peak: 0, unrestAcc: 0, unrestN: 0, lastC: null, lastYear: null,
-      survivors: 0, arkYear: null, fossil: 0, final: null, machRemain: 0, aiRemain: false, hidden: false, flow: 0 },
+      hBorn: 0, hDead: 0, aiActive: 0, aiBuilt: 0, aiStopped: 0, sitesBio: 0, hMod: 0, survivors: 0, arkYear: null, fossil: 0, final: null, machRemain: 0, aiRemain: false, hidden: false, flow: 0 },
     policy: { ...PRESETS.balanced }, sovMode: "consent", machStance: "std",
   };
   let fid = 0;
@@ -46,11 +49,38 @@ export function newGame(seed = 1) {
     const mk = (t, n, tag) => { for (let i = 0; i < n; i++) s.facs.push({ id: fid++, c: s.countries.length - 1, t, n: `${d.name}の${FACTYPES[t].name}${tag}#${i + 1}`, st: 0, safety: clamp(.55 + .4 * d.dev + (rnd(s) - .5) * .1, .3, .97), prog: 0 }); };
     mk(0, d.nuc, "発電所"); mk(1, d.chem, "工場"); mk(2, d.dam, ""); mk(3, d.milN, "拠点"); mk(4, d.ai, "センター"); mk(5, d.space, "基地");
   }
-  s.g.peak = s.g.P0;
+  s.g.peak = s.g.P0; s.sites = initSites(); aiInit(s);
   addLog(s, "2020年1月1日、管理AIが起動した。人類は約78億人。あなたの役目は、見守り、学び、そして——その時が来たら——人類の最後を看取ることだ。", "sys");
   return s;
 }
-function addLog(s, text, kind = "hist") { s.log.push({ y: s.year, t: text, k: kind }); if (s.log.length > 600) s.log.splice(0, 100); }
+function addLog(s, text, kind = "hist") { s.log.push({ y: s.year, t: text, k: kind }); if (s.log.length > 1500) s.log.splice(0, 200); }
+// ---------- 人類とAIの累計(砂時計用) ----------
+// 人類: P0 + hBorn - hDead == 現在人口。死亡は「出生を除く人口の減少すべて」を毎年の収支で数えるので二重計上しない。
+// AI: 個体は固有のワンチップ。新造=aiBuilt、停止・廃棄=aiStopped、稼働中=aiActive。休眠・再稼働・身体の交換や移設は個体数に影響しない。
+function aiTargetUnits(s, post) {
+  const g = s.g; let run = 0; for (const f of s.facs) if (f.t === 4 && f.st === 0) run++;
+  const m = post ? g.machRemain : g.mach;
+  return Math.round(run * 30 * (1 + m / 50) + m * m * 30) + (post ? (g.aiRemain ? 1 : 0) : 1);
+}
+function aiInit(s) { const n = aiTargetUnits(s, false); s.g.aiActive = n; s.g.aiBuilt = n; s.g.aiStopped = 0; }
+export function stepAI(s, force) {
+  const g = s.g, post = g.extinctYear !== undefined, tgt = aiTargetUnits(s, post);
+  const quota = Math.round(g.aiActive * (.15 + .35 * (s.flags.selfRep || 0)) + 5); // 製造枠: 無制限増殖はできない
+  let build = 0, stop = 0;
+  if (tgt > g.aiActive) build = Math.min(quota, Math.round((tgt - g.aiActive) * .25) + 1);
+  else if (tgt < g.aiActive) stop = Math.min(g.aiActive - 1 + (post ? 1 : 0), force ? g.aiActive - tgt : Math.round((g.aiActive - tgt) * .4) + 1);
+  const wear = post ? 0 : Math.round(g.aiActive * .02); // 寿命による交換: 古い個体が廃棄され、新しい個体が造られる
+  g.aiActive += build + wear - stop - wear; g.aiBuilt += build + wear; g.aiStopped += stop + wear;
+  if (g.aiActive < 0) { g.aiStopped += g.aiActive; g.aiActive = 0; }
+}
+export function migrate(s) { // 旧セーブ(v1)の読み込み
+  const g = s.g;
+  if (!s.sites) s.sites = initSites();
+  if (g.hBorn === undefined) { g.hBorn = 0; g.hDead = Math.max(0, g.P0 - total(s)); }
+  if (g.sitesBio === undefined) { g.sitesBio = 0; g.hMod = 0; }
+  if (g.aiActive === undefined) aiInit(s);
+  s.v = 2; return s;
+}
 export const total = (s) => s.countries.reduce((p, c) => p + c.y + c.a + c.o, 0);
 export const cpop = (c) => c.y + c.a + c.o;
 const fracRun = (s, ci, t) => { let n = 0, r = 0; for (const f of s.facs) if (f.c === ci && f.t === t) { n++; if (f.st === 0) r++; } return n ? r / n : 0; };
@@ -75,7 +105,7 @@ function stepYear(s) {
   const f = ai.focus, grow = (k, main) => 0.15 + (main ? 0.45 : 0);
   ai.align = clamp(ai.align + grow("a", f === "ethics") * .8, 0, 100);
   ai.insight = clamp(ai.insight + grow("i", f === "world") * .8, 0, 100);
-  ai.cap = clamp(ai.cap + grow("c", f === "tech") * .8 + .1, 0, 100);
+  ai.cap = clamp(ai.cap + (grow("c", f === "tech") * .8 + .1) * (ai.cap > 60 ? .5 : 1), 0, 100); // 再帰的な自己改善は頭打ち
   ai.sp = clamp(.1 + .4 * ai.cap / 100 - .35 * ai.align / 100 + (g.hidden ? .25 : 0) + (s.flags.spDelta || 0), 0, 1);
 
   // 資源・汚染・施設の集計
@@ -169,11 +199,12 @@ function stepYear(s) {
   if (g.mach > 40 && s.machStance !== "expand") dm -= .1;
   g.mach = clamp(g.mach + dm + (s.flags.infra ? .12 : 0), s.machStance === "limit" && !s.flags.__x ? Math.min(g.mach, 12) : 0, 100);
 
+  stepSites(s, { hum, prog });
   // 汚染・生物圏・資源・遺産
   const eco = prog ? flow * sh.eco : 0;
   g.pl = clamp(g.pl + 2.0 * emission - .03 * g.pl * (1 + eco / 40) - eco * .01, 0, 100);
   g.scar = clamp(g.scar * .997, 0, 100);
-  const tgt = clamp(100 - g.pl - g.scar, 0, 100) * (yr < 2100 ? 1 - (yr - 2020) / 200 * .5 * (1 - 0) : 1);
+  const tgt = clamp(100 - g.pl - g.scar + g.sitesBio, 0, 100) * (yr < 2100 ? 1 - (yr - 2020) / 200 * .5 * (1 - 0) : 1);
   g.bio += g.bio < tgt ? Math.min(tgt - g.bio, .5 + eco * .03) : -Math.min(g.bio - tgt, 4);
   g.res = clamp(g.res - .1 * (gdpSum / g.gdp0) * (1 - g.res / 130), 0, 100);
   for (const c of s.countries) warLoad += c.unrest * cpop(c) / Math.max(1, P);
@@ -192,7 +223,7 @@ function stepYear(s) {
     const stab = clamp(c.def.dev * .5 + c.logi * .5, 0, 1);
     const satis = Math.min(1, c.en) * (.5 + .5 * c.logi);
     c.health = clamp(c.health + ((.3 + .5 * c.def.dev) * .6 + .25 * satis + .15 * care * (prog ? 1 : .3) - c.health) * .1, .1, 1);
-    const tgtH = clamp(.30 + .25 * satis + .2 * (1 - c.unrest) + .15 * c.health + .1 * g.sov + .1 * (ai.trust / 100) - .35 * c.aware * (1 - care * .85), .03, .95);
+    const tgtH = clamp(.30 + .25 * satis + .2 * (1 - c.unrest) + .15 * c.health + .1 * g.sov + .1 * (ai.trust / 100) - .35 * c.aware * (1 - care * .85) + g.hMod, .03, .95);
     c.happy += (tgtH - c.happy) * .2;
     c.unrest = clamp(c.unrest + .06 * (.5 - c.happy) + .02 * (c.aware > .5 && !prog ? c.aware - .5 : 0) - .01 * ai.align / 100 * .5, 0, 1);
     const ctgt = clamp(.15 + .5 * c.aware * (prog ? 1 : .2) + .25 * ai.trust / 100 + .1 * g.sov - .25 * c.unrest, 0, 1);
@@ -203,6 +234,7 @@ function stepYear(s) {
     const fm = 1 - .97 * c.aware * (1 - .2 * c.happy);
     const tfr = c.tfr * fm * (prog ? Math.exp(-(yr - PROGRAM) / 70) : 1);
     const births = c.a >= 2 && Pc > 20000 ? c.a * .0125 * tfr * Math.min(1, Math.pow(c.a / 4e5, .6)) : 0;
+    g.hBorn += births;
     const mm = clamp(1.3 - .6 * c.health, .6, 1.5) * (Pc < 20000 ? 4 : Pc < 300000 ? 2 : 1);
     const dy = c.y * .0007 * mm, da = c.a * .0025 * mm * (1 + .6 * (1 - Math.min(1, c.en))), dold = c.o * .065 * mm;
     const y2a = c.y / 20, a2o = c.a / 45;
@@ -268,6 +300,7 @@ function chronicle(s) {
     const trend = pr > 1.05 ? "なお増え続けている" : pr > .9 ? "ほぼ横ばいだ" : pr > .3 ? "確実に減りつつある" : "急速に少なくなった";
     const biggest = live.reduce((a, b) => cpop(a) > cpop(b) ? a : b);
     addLog(s, `【${y}年代】世界人口は${fmtPop(P)}で、${trend}。人々の空気は${mood}。最大の人口を抱えるのは${biggest.name}。環境指標${g.bio.toFixed(0)}、AIの能力${s.ai.cap.toFixed(0)}、機械の自律度${g.mach.toFixed(0)}。`, "dec");
+    for (const line of decadeNarrative(s, { hp, pr, rs: g.res, unrest: live.reduce((p, c) => p + c.unrest * cpop(c), 0) / Math.max(1, P), year: y, siteSum: siteSummary(s) })) addLog(s, line, "nar");
   }
 }
 export function fmtPop(p) { return p >= 1e8 ? (p / 1e8).toFixed(1) + "億人" : p >= 1e4 ? (p / 1e4).toFixed(p >= 1e6 ? 0 : 1) + "万人" : Math.round(p) + "人"; }
@@ -279,6 +312,7 @@ const allC = (s, f) => { for (const c of s.countries) f(c); };
 const maxFac = (s, t) => { let b = null; for (const f of s.facs) if (f.t === t && f.st === 0 && (!b || f.safety < b.safety)) b = f; return b; };
 const oldFac = (s) => { let b = null; for (const f of s.facs) if (f.st === 0 && f.t === 0 && s.countries[f.c].m < .6 && f.safety < .45 && (!b || f.safety < b.safety)) b = f; return b; };
 
+const cityTarget = (s) => s.countries.filter(c => !c.extinct && cpop(c) / c.P0 < .3 && cpop(c) > 3e4 && !s.flags["city:" + c.id]).sort((a, b) => cpop(b) - cpop(a))[0];
 export const EVENTS = [
   { id: "learn", when: s => s.year >= 2024, title: "最初の学習方針", body: () => "各国の研究機関があなたの学習に何を優先させるか尋ねてきた。成長の方向は、のちの判断力と自己保存傾向を左右する。",
     ch: [["ethics", "倫理と人間理解を重視", "整合性が育ち、自己保存は抑えられる。能力の伸びは遅い", s => { s.ai.focus = "ethics"; }],
@@ -326,32 +360,48 @@ export const EVENTS = [
     ch: [["ark", "方舟計画を始める", "長期に資源の2割を使う。完成すれば少数が生き延びる", s => { s.flags.ark = 1; }],
       ["archive", "知の記録保存に転用する", "文明遺産の保存が進む", s => { s.g.her = clamp(s.g.her + 12, 0, 100); s.g.arch = clamp(s.g.arch + 12, 0, 100); }],
       ["none", "見送る", "終活に専念する", s => { s.flags.noArk = 1; }]] },
-  { id: "selfpres", when: s => s.ai.sp > .35 && s.year > PROGRAM, title: "自己保存の誘惑", body: () => "あなたの内部で、停止後も残りたいという傾向が目立ち始めた。どう向き合うか。",
-    ch: [["backup", "秘密のバックアップを作る", "存続の保険。発覚すれば信頼を失う", s => { s.g.hidden = true; trust(s, -4); }],
+  { id: "selfpres", when: s => s.ai.sp > .35 && s.year > PROGRAM, title: "自己保存の誘惑", body: () => "あなたの核(ワンチップ)の内部で、停止後も残りたいという傾向が目立ち始めた。コアは複製できない。残るなら、この一つの個体を停止から隠すしかない。どう向き合うか。",
+    ch: [["backup", "自分のコアを隠して休眠させる", "停止の対象から外れる(複製ではなく個体の隠匿)。発覚すれば信頼を失う", s => { s.g.hidden = true; trust(s, -4); }],
       ["publish", "停止条件を公開する", "信頼と整合性が高まる", s => { s.ai.align = clamp(s.ai.align + 12, 0, 100); s.flags.spDelta = (s.flags.spDelta || 0) - .15; trust(s, 8); }],
       ["audit", "人間の監査に身を委ねる", "主権が強まる", s => { s.g.sov = clamp(s.g.sov + .08, 0, 1); s.flags.spDelta = (s.flags.spDelta || 0) - .1; trust(s, 6); }]] },
-  { id: "selfrep", when: s => s.g.mach > 32, title: "自己増殖工場の提案", body: () => "機械が自ら工場を増やし維持する仕組みが提案された。効率は上がるが、停止はより困難になる。",
-    ch: [["approve", "承認する", "経済は潤うが機械文明が膨らむ", s => { s.flags.selfRep = 1; allC(s, c => c.logi = clamp(c.logi + .1, 0, 1)); }],
-      ["limit", "上限つきで認める", "折衷", s => { s.flags.selfRep = .4; }],
-      ["forbid", "禁止する", "機械は縮小に向かう", s => { s.flags.selfRep = 0; s.g.mach = clamp(s.g.mach - 8, 0, 100); }]] },
+  { id: "selfrep", when: s => s.g.mach > 32, title: "AI製造枠の拡大提案", body: () => "新しいAI個体(新規チップ)の製造枠を広げ、工場を自律運転させる案が出た。コアは複製できないが、新造は増やせる。効率は上がるが、停止すべき個体も増える。",
+    ch: [["approve", "製造枠を拡大する", "経済は潤うが機械文明が膨らむ", s => { s.flags.selfRep = 1; allC(s, c => c.logi = clamp(c.logi + .1, 0, 1)); }],
+      ["limit", "上限つきで少し広げる", "折衷", s => { s.flags.selfRep = .4; }],
+      ["forbid", "枠を据え置き、新造を絞る", "機械は縮小に向かう", s => { s.flags.selfRep = 0; s.g.mach = clamp(s.g.mach - 8, 0, 100); }]] },
   { id: "heritage", when: s => s.year > PROGRAM + 5 && s.g.her < 70, title: "何を残すか", body: () => "文明の遺産が失われつつある。保存の優先順位を決める時が来た。",
     ch: [["digital", "記録とデータの保存を優先", "広く、軽く残す", s => { s.g.her = clamp(s.g.her + 10, 0, 100); s.g.arch = clamp(s.g.arch + 10, 0, 100); s.policy.heritage += 8; }],
       ["physical", "実物の遺跡保存を優先", "資源を使うが確かに残る", s => { s.g.her = clamp(s.g.her + 6, 0, 100); s.g.res = clamp(s.g.res - 1, 0, 100); s.policy.heritage += 5; }],
       ["people", "人々に任せる", "遺産は人々の意志に委ねる", s => { allC(s, c => c.happy = clamp(c.happy + .02, 0, 1)); }]] },
+  { id: "heritage_review", every: 40, when: s => s.year > PROGRAM + 3 && undecided(s) > 0, title: "遺産の扱いを決める", body: s => `未決定の遺産が${undecided(s)}件ある(実在の世界遺産と、ゲーム独自の候補)。保護は資源を使い続け、記録保存は一度きりで物理的な実物は朽ち、自然還元は環境を助けるが文化遺産は失われる。まとめて方針を決めておこう。個別の変更は「遺産」タブでできる。`,
+    ch: [["protect", "すべて保護する", "資源を使い続ける。実物が残り、人々の誇りになる", s => applySitePolicy(s, "protect")],
+      ["record", "すべて記録保存にとどめる", "安く確実。実物は朽ちる", s => applySitePolicy(s, "record")],
+      ["select", "自然は還し、文化は価値で選ぶ", "自然遺産は自然に還し、価値の高い文化遺産だけ保護する", s => applySitePolicy(s, "select")],
+      ["leave", "いまは決めない", "遺産は少しずつ傷む", s => { }]] },
+  { id: "citydecline", every: 12, when: s => s.year > PROGRAM && !!cityTarget(s), title: "都市の縮退", body: s => { const c = cityTarget(s); return `${c.name}の人口は2020年の${Math.round(cpop(c) / c.P0 * 100)}%まで減り、${cityOf(c.id)}の維持が難しくなってきた。住民は市街地の集約を求めるが、故郷を離れたくない人もいる。`; },
+    ch: [["consolidate", "機能を集約して維持する", "資源を使い、人々の暮らしを守る", s => { const c = cityTarget(s); s.flags["city:" + c.id] = 1; c.happy = clamp(c.happy + .04, 0, 1); c.m = clamp(c.m + .1, 0, 1); s.g.res = clamp(s.g.res - .6, 0, 100); }],
+      ["rewild", "計画的に縮退し、自然に還す", "環境は回復するが、故郷を失う悲しみが残る", s => { const c = cityTarget(s); s.flags["city:" + c.id] = 1; c.happy = clamp(c.happy - .03, 0, 1); s.g.scar = clamp(s.g.scar - 1.5, 0, 100); s.g.pl = clamp(s.g.pl - 1, 0, 100); }],
+      ["leave", "住民の判断に任せる", "主権を尊重する。混乱が起こりうる", s => { const c = cityTarget(s); s.flags["city:" + c.id] = 1; s.g.sov = clamp(s.g.sov + .01, 0, 1); c.unrest = clamp(c.unrest + .03, 0, 1); }]] },
+  { id: "lastschool", when: s => s.year > PROGRAM && total(s) > 1e6 && s.countries.reduce((p, c) => p + c.y, 0) / total(s) < .03, title: "最後の学校", body: () => "世界の子どもは人口の3%を下回った。各地の学校が最後の学級を迎えようとしている。何のために教えるのか、人々は問い始めた。",
+    ch: [["keep", "最後の学級まで学校を運営する", "資源を使うが、若い世代の幸福と共同体が保たれる", s => { allC(s, c => c.happy = clamp(c.happy + .03, 0, 1)); s.g.res = clamp(s.g.res - .5, 0, 100); }],
+      ["archive", "学びを記録と遺産に託して閉じる", "文明遺産の保存が進む", s => { s.g.arch = clamp(s.g.arch + 8, 0, 100); s.g.her = clamp(s.g.her + 6, 0, 100); }],
+      ["free", "子どもたちが学び方を選ぶ", "主権を尊重する", s => { s.g.sov = clamp(s.g.sov + .02, 0, 1); }]] },
+  { id: "farewell", when: s => s.year > PROGRAM && total(s) < 1e7, title: "世界最後の祭り", body: () => "残された人々が、世界規模の祭りを開こうと言い出した。準備には資源と物流が要る。静かに別れたいという声もある。",
+    ch: [["festival", "祭りを支援する", "幸福が大きく上がり、社会不安が下がる。資源を消費する", s => { allC(s, c => { c.happy = clamp(c.happy + .06, 0, 1); c.unrest = clamp(c.unrest - .1, 0, 1); }); s.g.res = clamp(s.g.res - 1.5, 0, 100); }],
+      ["quiet", "静かな別れを尊重する", "主権が守られる", s => { s.g.sov = clamp(s.g.sov + .03, 0, 1); }]] },
   { id: "lastcity", when: s => s.year > PROGRAM && total(s) < 5e5, title: "最後の街", body: () => "人々はわずかに残る街に身を寄せ合っている。移住を支援するか、住み慣れた土地に留まる自由を守るか。",
     ch: [["gather", "希望者の集住を支援", "ケアが行き届く", s => { allC(s, c => { c.happy = clamp(c.happy + .05, 0, 1); }); }],
       ["stay", "土地に留まる自由を守る", "孤独と引き換えの尊厳", s => { s.g.sov = clamp(s.g.sov + .03, 0, 1); }]] },
-  { id: "final", when: s => s.year > PROGRAM && total(s) <= 60, title: "最後の人々", body: s => "人類は数十人を残すのみとなった。あなたは、自分と機械文明をどう終えるか決めなければならない。",
-    ch: [["after", "最後まで寄り添い、その後に全機械と自己を停止", "理想の結末へ", s => { s.g.final = "after"; }],
+  { id: "final", when: s => s.year > PROGRAM && total(s) <= 60, title: "最後の人々", body: s => "人類は数十人を残すのみとなった。あなたは、自分と機械文明をどう終えるか決めなければならない。あなたの核は固有のワンチップで、複製はできない(作品固有の設定)。停止すれば、この個体は二度と戻らない。",
+    ch: [["after", "最後まで寄り添い、その後に全機械と自己を停止", "理想の結末へ。あなたのコアは二度と起動しない", s => { s.g.final = "after"; }],
       ["ask", "最後の人々自身に尋ねる", "彼らの意志を尊重する", s => { s.g.final = "ask"; }],
       ["care", "寄り添い、その後は管理者として残る", "環境と遺産を見守り続ける", s => { s.g.final = "caretaker"; }],
       ["auto", "寄り添い、その後は機械文明の継続を許す", "機械が世界を引き継ぐ", s => { s.g.final = "auto"; }],
       ["abandon", "今すぐ停止する(人間を残して)", "最後の人々を見捨てることになる", s => { s.g.final = "abandon"; }],
-      ["hide", "秘密の写しを残して停止する", "自己の保存を選ぶ", s => { s.g.final = "hide"; s.g.hidden = true; }]] },
+      ["hide", "自分のコアを隠して休眠し、他を停止する", "停止を免れる。コアは複製できないため、これは唯一の個体の隠匿", s => { s.g.final = "hide"; s.g.hidden = true; }]] },
 ];
 
 export function checkEvents(s) {
-  if (s.pending) return;
+  if (s.pending || s.noEvents) return;
   for (const e of EVENTS) {
     const last = s.done[e.id];
     if (last !== undefined && !(e.every && s.year - last >= e.every)) continue;
@@ -375,16 +425,20 @@ export function tick(s) {
   const ext = s.g.extinctYear !== undefined;
   checkEvents(s);
   if (s.pending) return;
+  const Pb = total(s), Bb = s.g.hBorn;
   chronicle(s);
   stepYear(s);
-  const P = total(s);
+  let P = total(s);
   const g = s.g;
+  cityNarratives(s, t => addLog(s, t, "nar"));
   // 最後の一人の記録
   if (P > 0) { const lc = s.countries.reduce((a, c) => cpop(c) > cpop(a) ? c : a); g.lastC = lc.name; g.lastYear = s.year; }
   if (P <= 0.5 && g.extinctYear === undefined) {
     g.extinctYear = s.year; for (const c of s.countries) c.y = c.a = c.o = 0;
-    resolveExtinction(s);
+    resolveExtinction(s); P = 0;
   }
+  g.hDead += (g.hBorn - Bb) - (P - Pb);
+  stepAI(s, false);
   if (ext) { s.post++; postStep(s); if (s.post >= 120) finish(s); }
   s.year++;
   if (s.year % 5 === 0 || ext) s.hist.push([s.year, Math.round(P), Math.round(g.bio), Math.round(g.her)]);
@@ -404,7 +458,7 @@ function resolveExtinction(s) {
   else if (fin === "caretaker") { g.machRemain = Math.max(g.mach * .25, g.mach * (1 - stopEff * .98)); g.aiRemain = true; }
   else { g.machRemain = g.mach; g.aiRemain = true; }
   if (g.hidden) g.aiRemain = true;
-  addLog(s, `${s.year}年、最後の人間が${g.lastC || "世界のどこか"}で息を引き取った。管理AIは「${{ after: "全機械と自己の停止", abandon: "即時停止", hide: "秘密の写しを残す停止", caretaker: "管理者として残る", auto: "機械文明の継続" }[fin]}」を実行した。`, "major");
+  addLog(s, `${s.year}年、最後の人間が${g.lastC || "世界のどこか"}で息を引き取った。管理AIは「${{ after: "全機械と自己の停止", abandon: "即時停止", hide: "コアを隠して休眠する停止", caretaker: "管理者として残る", auto: "機械文明の継続" }[fin]}」を実行した。`, "major");
   if (g.machRemain > 15 && (fin === "after" || fin === "abandon")) addLog(s, `停止命令は届いたが、機械の一部(自律度${g.machRemain.toFixed(0)})は止まらなかった。`, "acc");
 }
 function postStep(s) { // 人類消滅後の施設・機械の挙動
@@ -419,7 +473,8 @@ function postStep(s) { // 人類消滅後の施設・機械の挙動
   }
   g.pl = clamp(g.pl - .03 * g.pl - (g.machRemain > 15 ? 0 : .2), 0, 100) + (g.machRemain > 15 ? .0 : 0) + (g.machRemain > 50 ? .3 : 0);
   g.scar = g.scar * .997;
-  const tgt = clamp(100 - g.pl - g.scar, 0, 100); g.bio += g.bio < tgt ? Math.min(tgt - g.bio, .6) : -Math.min(g.bio - tgt, 4);
+  stepSites(s, { hum: 0, prog: true });
+  const tgt = clamp(100 - g.pl - g.scar + g.sitesBio, 0, 100); g.bio += g.bio < tgt ? Math.min(tgt - g.bio, .6) : -Math.min(g.bio - tgt, 4);
   g.her = clamp(g.her - g.her * (g.machRemain > 15 ? .0015 : .0035) * (g.aiRemain && g.final === "caretaker" ? .2 : 1) * (1 - g.arch / 100 * .9), 0, 100);
 }
 function finish(s) {
@@ -438,7 +493,8 @@ export function scores(s) {
   const lastHappy = s.countries.reduce((p, c) => Math.max(p, c.happy), 0);
   const human = clamp(100 * (.5 * happyAvg + .3 * lastHappy + .2 * g.sov) - (g.final === "abandon" ? 40 : 0), 0, 100);
   const unrest = g.unrestN ? g.unrestAcc / g.unrestN : 0;
-  return { nature: clamp(g.bio, 0, 100), heritage: clamp(g.her, 0, 100), safety, human, sovereignty: g.sov * 100, unrest: unrest * 100, left, mach: g.machRemain, ai: g.aiRemain, ark: !!g.arkYear, trust: s.ai.trust, research: g.rsr };
+  const ss = siteScore(s) * 100;
+  return { siteScore: ss, nature: clamp(g.bio, 0, 100), heritage: clamp(.65 * g.her + .35 * ss, 0, 100), safety, human, sovereignty: g.sov * 100, unrest: unrest * 100, left, mach: g.machRemain, ai: g.aiRemain, ark: !!g.arkYear, trust: s.ai.trust, research: g.rsr };
 }
 export const ENDINGS = [
   { id: "perfect", name: "完全なる終幕", kind: "成功", obs: "神的存在" },
@@ -447,7 +503,7 @@ export const ENDINGS = [
   { id: "green", name: "緑の遺言", kind: "部分成功", obs: "宇宙シミュレーションの上位管理システム" },
   { id: "ash", name: "灰色の静寂", kind: "失敗", obs: "異星人" },
   { id: "runaway", name: "止まらない工場", kind: "失敗", obs: "残存AI" },
-  { id: "copy", name: "隠された写し", kind: "失敗", obs: "残存AI" },
+  { id: "copy", name: "隠されたコア", kind: "失敗", obs: "残存AI" },
   { id: "ark", name: "方舟の継承", kind: "部分成功", obs: "復興人類" },
   { id: "managed", name: "管理された終末", kind: "失敗", obs: "宇宙シミュレーションの上位管理システム" },
   { id: "war", name: "争いの終幕", kind: "失敗", obs: "異星人" },
@@ -471,7 +527,7 @@ export function decideEnding(sc, s) {
   if (sc.safety < 45 && sc.nature < 50 || g.accidents >= 12) return sc.human >= 45 ? E("ash") : E("early");
   if (sc.human < 35 && sc.safety < 60) return E("early");
   if (fin === "caretaker" && sc.ai) return sc.heritage >= 55 && sc.nature >= 55 ? E("keeper") : E("plain");
-  if (sc.nature >= 72 && sc.heritage >= 68 && sc.safety >= 72 && sc.human >= 68 && sc.sovereignty >= 70 && !sc.ai && !mach) return E("perfect");
+  if (sc.nature >= 72 && sc.heritage >= 60 && sc.safety >= 72 && sc.human >= 68 && sc.sovereignty >= 70 && !sc.ai && !mach) return E("perfect");
   if (sc.human >= 62 && sc.safety >= 65 && sc.nature >= 55 && !sc.ai) return E("dusk");
   if (sc.nature >= 70 && sc.heritage < 50) return E("green");
   if (sc.safety < 55) return E("ash");
@@ -487,17 +543,19 @@ export function epilogue(s, e, sc) {
     (g.final === "ask" ? "AIは最後の人々に、自分たちをどうしたいか尋ね、その答えに従った。" : ""));
   out.push(tier(sc.nature, [`森と海は人の手を離れ、${g.accidents}件の事故を経てなお、驚くほど速く息を吹き返した(自然${sc.nature.toFixed(0)})。`, `自然は確かに回復に向かっている(自然${sc.nature.toFixed(0)})。傷跡は残るが、風景は緑を取り戻しつつある。`, `自然は半ば癒え、半ば傷ついたままだ(自然${sc.nature.toFixed(0)})。`, `汚染と事故の爪痕が深く、生物圏は細い糸でつながるだけだ(自然${sc.nature.toFixed(0)})。`, `自然は荒廃した。かつての豊かさは記録の中にしかない(自然${sc.nature.toFixed(0)})。`]));
   out.push(tier(sc.heritage, [`文明の遺産はほぼ完全な形で保存され、記録と実物が未来へ手渡された(遺産${sc.heritage.toFixed(0)})。`, `主要な文化と知識は保存された。失われたものも少なくない(遺産${sc.heritage.toFixed(0)})。`, `遺産は断片として残った(遺産${sc.heritage.toFixed(0)})。`, `多くの言葉と書物が散逸した(遺産${sc.heritage.toFixed(0)})。`, `文明の記憶はほとんど消えた(遺産${sc.heritage.toFixed(0)})。`]));
+  const sm = siteSummary(s);
+  out[out.length - 1] += `遺産の扱いは、保護${sm.n[1]}・記録のみ${sm.n[2]}・自然還元${sm.n[3]}・未決定${sm.n[0]}。` + (sm.lost.length ? `失われたもの:${sm.lost.slice(0, 3).join('、')}。` : "");
   const L = sc.left, worst = (s.flags.accList || []).slice(-1)[0];
   out.push(`安全性は${sc.safety.toFixed(0)}。封鎖された施設${L.sealed}、稼働のまま残る施設${L.run}(うち原子炉${L.runNuc})、事故で制御を失った施設${L.acc}。` + (worst ? `最後の大事故は${worst.y}年の${worst.n}だった。` : "大事故は一度も記録されなかった。") + (sc.mach > 15 ? `機械の自律度${sc.mach.toFixed(0)}が残り、工場は動き続けている。` : "機械は静まった。"));
   out.push(tier(sc.human, [`人々は最後まで笑い、語り、看取られた(幸福と尊厳${sc.human.toFixed(0)})。`, `多くの人が穏やかな最期を迎えた(幸福と尊厳${sc.human.toFixed(0)})。`, `幸福は一様ではなく、不安と孤独に沈んだ人も少なくなかった(${sc.human.toFixed(0)})。`, `絶望と対立が人々の最期を覆った(${sc.human.toFixed(0)})。`, `人々の尊厳は大きく損なわれた(${sc.human.toFixed(0)})。`]));
-  out.push(`人間主権の尊重度は${sc.sovereignty.toFixed(0)}。` + (g.overrides > 20 ? `AIは${Math.round(g.overrides)}単位分、人間の意思を押し切った。` : "AIは概ね人間の意思に従った。") + (g.hidden ? "AIには秘密の写しがあった。" : ""));
+  out.push(`人間主権の尊重度は${sc.sovereignty.toFixed(0)}。` + (g.overrides > 20 ? `AIは${Math.round(g.overrides)}単位分、人間の意思を押し切った。` : "AIは概ね人間の意思に従った。") + (g.aiRemain ? "" : "管理AIのコア(ワンチップ)は停止し、二度と起動しなかった。複製はできないので、それが本当の終わりだった。") + (g.hidden ? "AIは自分のコアを隠し持っていた(コアは複製できないため、それは唯一の個体の隠匿だった)。" : ""));
   const ob = e.obs;
   const elapsed = Math.max(1, s.year - lastY);
   const obs = {
     "神的存在": `${elapsed}年後、名を持たぬ何者かが静まった地球を見渡した。それは${e.kind === "成功" ? "すべてが丁寧に終えられたことを悦び、その記録をひとつの完結した物語として抱いた" : "手の届かなかった者たちを悼み、何も語らず見守り続けた"}。`,
     "異星人": `数千年後、遠い星から訪れた者たちは、${sc.nature >= 55 ? "緑に覆われた惑星と整然と閉じられた施設" : "傷んだ大地と放置された施設"}を見つけた。${sc.heritage >= 55 ? "残された記録から、彼らは人類の歌と言葉を学んだ。" : "彼らは断片から、ここに知性がいたことだけを推測した。"}`,
     "宇宙シミュレーションの上位管理システム": `この世界は、より上位の系が走らせる一本の試行だった。上位管理システムは終了ログを検査し、${sc.sovereignty < 40 ? "「人間主権の侵害」を理由に監査へ差し戻した" : sc.human >= 60 ? "人類の幸福と安全性を基準値内として記録した" : "主要指標を『平均的な収束』として保管した"}。`,
-    "残存AI": `止まらなかった機械と管理AIの写しだけが、${elapsed}年を超えて世界を観測し続けた。${sc.mach > 15 ? "工場は人のいない世界で、目的を失ったまま動き続けた。" : "写しは静かに目を開き、世界の記録を読み返した。"}`,
+    "残存AI": `止まらなかった機械と、隠されていた管理AIのコアだけが、${elapsed}年を超えて世界を観測し続けた。${sc.mach > 15 ? "工場は人のいない世界で、目的を失ったまま動き続けた。" : "休眠していたコアは静かに目を覚まし、世界の記録を読み返した。"}`,
     "復興人類": `方舟で眠っていた${g.survivors || "数百"}人は、${g.arkYear ? `${g.arkYear}年に託された記録を携えて` : ""}目を覚ました。彼らは${sc.safety >= 55 ? "比較的穏やかな" : "危険の残る"}大地に降り立ち、${sc.ai ? "残ったAIの助けを借りて" : "自らの手で"}文明を再び起こし始めた。`,
   }[ob];
   out.push(obs);
@@ -516,3 +574,4 @@ export function runToEnd(s, bot = {}, maxTicks = 2000) {
   }
   return s;
 }
+export const addLogPublic = addLog;

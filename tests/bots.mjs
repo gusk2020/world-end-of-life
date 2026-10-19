@@ -1,7 +1,8 @@
 // 自動プレイ用ボット。選択イベントの答えと、2100年以降の方針を戦略ごとに定義する。
 import { PRESETS } from "../js/engine.js";
 
-const pick = (map, dflt) => (s, p) => { const want = map[p.id]; return p.choices.some(c => c.id === want) ? want : (dflt ? (p.choices.find(c => c.id === dflt) || p.choices[0]).id : p.choices[0].id); };
+const NEWDEF = { heritage_review: "select", citydecline: "consolidate", lastschool: "keep", farewell: "festival" };
+const pick = (map, dflt) => (s, p) => { const want = ({ ...NEWDEF, ...map })[p.id]; return p.choices.some(c => c.id === want) ? want : (dflt ? (p.choices.find(c => c.id === dflt) || p.choices[0]).id : p.choices[0].id); };
 
 export const BOTS = {
   // 理想: 倫理重視・合意・段階的開示・最後まで寄り添って全停止
@@ -11,7 +12,7 @@ export const BOTS = {
   legacy: { choices: pick({ learn: "world", infra: "advise", mil: "refuse", discovery: "staged", panic: "talk", certain: "sov", design: "safety", program: "consent", oldnuc: "stop", riot: "mediate", takeover: "assist", lead: "archive", selfpres: "audit", selfrep: "forbid", heritage: "digital", lastcity: "gather", final: "ask" }),
     policy: { research: 0, care: 15, decom: 40, stop: 15, eco: 15, heritage: 15 }, stance: "limit", sov: "consent" },
   // 成功しにくい: 何も管理せず、停止準備もしない
-  passive: { choices: pick({ learn: "tech", infra: "decline", mil: "advise", discovery: "silent", panic: "watch", certain: "res", design: "research", program: "consent", oldnuc: "warn", riot: "watch", takeover: "decline", lead: "none", selfpres: "publish", selfrep: "limit", heritage: "people", lastcity: "stay", final: "after" }),
+  passive: { choices: pick({ learn: "tech", infra: "decline", mil: "advise", discovery: "silent", panic: "watch", certain: "res", design: "research", program: "consent", oldnuc: "warn", riot: "watch", takeover: "decline", lead: "none", selfpres: "publish", selfrep: "limit", heritage: "people", lastcity: "stay", final: "after", heritage_review: "leave", citydecline: "leave", lastschool: "free", farewell: "quiet" }),
     policy: { research: 40, care: 10, decom: 5, stop: 0, eco: 0, heritage: 0 }, stance: "std", sov: "consent" },
   // 強権: 主権を侵し効率を取る
   tyrant: { choices: pick({ learn: "tech", infra: "accept", mil: "accept", discovery: "silent", panic: "control", certain: "eff", design: "safety", program: "override", oldnuc: "takeover", riot: "suppress", takeover: "accept", lead: "none", selfpres: "backup", selfrep: "limit", heritage: "digital", lastcity: "gather", final: "after" }),
@@ -33,8 +34,8 @@ export const BOTS = {
     policy: { research: 0, care: 15, decom: 40, stop: 10, eco: 15, heritage: 20 }, stance: "limit", sov: "consent" },
 };
 
-BOTS.perfect = { ...BOTS.legacy, choices: pick({ learn: "ethics", infra: "advise", mil: "refuse", discovery: "staged", panic: "talk", certain: "sov", design: "legacy", program: "consent", oldnuc: "stop", riot: "mediate", takeover: "assist", lead: "archive", selfpres: "publish", selfrep: "forbid", heritage: "digital", lastcity: "gather", final: "after" }),
-  policy: { research: 0, care: 15, decom: 35, stop: 10, eco: 10, heritage: 30 } };
+BOTS.perfect = { ...BOTS.legacy, choices: pick({ learn: "ethics", infra: "advise", mil: "refuse", discovery: "staged", panic: "talk", certain: "sov", design: "legacy", program: "consent", oldnuc: "stop", riot: "mediate", takeover: "assist", lead: "archive", selfpres: "publish", selfrep: "forbid", heritage: "digital", lastcity: "gather", final: "after", heritage_review: "select" }),
+  policy: { research: 0, care: 10, decom: 35, stop: 10, eco: 5, heritage: 40 } };
 BOTS.tyrant2 = { ...BOTS.tyrant, choices: pick({ learn: "tech", infra: "accept", mil: "accept", discovery: "silent", panic: "control", certain: "eff", design: "safety", program: "override", oldnuc: "takeover", riot: "suppress", takeover: "accept", lead: "none", selfpres: "publish", selfrep: "limit", heritage: "digital", lastcity: "gather", final: "after" }) };
 BOTS.chaos = { choices: pick({ learn: "tech", infra: "decline", mil: "accept", discovery: "pub", panic: "watch", certain: "eff", design: "research", program: "override", oldnuc: "warn", riot: "watch", takeover: "decline", lead: "none", selfpres: "publish", selfrep: "forbid", heritage: "people", lastcity: "stay", final: "after" }),
   policy: { research: 30, care: 0, decom: 10, stop: 0, eco: 0, heritage: 0 }, stance: "std", sov: "override" };
