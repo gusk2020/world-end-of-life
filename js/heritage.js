@@ -53,7 +53,7 @@ export function stepSites(s, ctx) {
   SITES.forEach((d, i) => {
     const x = s.sites[i], c = s.countries.find(k => k.id === d.cid);
     const labour = c && !c.extinct ? c.m : Math.min(1, (g.machRemain || 0) / 60);
-    let rate = .0018 + .01 * (c && !c.extinct ? c.unrest : 0) + (1 - ctx.hum) * .0025;
+    let rate = .0012 + .008 * (c && !c.extinct ? c.unrest : 0) + (1 - ctx.hum) * .0018;
     if (x.st === 1) rate *= labour > .3 ? .12 : .3;
     if (x.st === 3) rate = .02;
     x.cond = clamp(x.cond - rate, 0, 1);

@@ -6,18 +6,7 @@ export const METRICS = [
 ];
 const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 
-export function metrics(s) {
-  const g = s.g, sc = E.scores(s), P = E.total(s);
-  // 現在の運用上の安全性: 稼働・停止中・封鎖・事故の施設を、危険度×安全余裕の不足で重みづけ
-  let r = 0, w = 0; for (const f of s.facs) { const h = [1, .5, .6, .8, .2, .15][f.t]; r += h * [1, .6, .1, 2][f.st] * (1 - f.safety); w += h; }
-  const safety = clamp(100 * (1 - r / w * 3), 0, 100);
-  let hp = 0; for (const c of s.countries) hp += c.happy * E.cpop(c);
-  const stopFrac = clamp(g.stopReady / (30 + g.mach * .8), 0, 1);
-  return {
-    pop: clamp(P / g.P0 * 100, 0, 200), happy: P > 0 ? hp / P * 100 : 0, safety, env: g.bio, res: g.res,
-    ai: clamp(100 * (.35 * (1 - s.ai.sp) + .35 * stopFrac + .3 * s.ai.align / 100), 0, 100), her: sc.heritage,
-  };
-}
+export const metrics = E.metrics; // 指標の計算は engine.js に一本化(自動判断と画面で同じ数値を使う)
 export function project(s, years, mutate) {
   const c = structuredClone(s); c.pending = null; c.noEvents = true; if (mutate) mutate(c);
   for (let i = 0; i < years && !c.ended; i++) E.tick(c);
@@ -42,7 +31,7 @@ export function previewChoices(s, years = 15) {
 }
 // 方針(配分・停止の進め方・機械方針・学習方針)の変更前後の見込み
 export function previewPolicy(s, draft, horizons = [10, 40]) {
-  const apply = (x) => { x.policy = { ...draft.policy }; x.sovMode = draft.sovMode; x.machStance = draft.machStance; x.ai.focus = draft.focus; };
+  const apply = (x) => { x.policy = { ...draft.policy }; x.sovMode = draft.sovMode; x.machStance = draft.machStance; x.ai.focus = draft.focus; x.wildStance = draft.wildStance; };
   const res = { now: metrics(s), rows: [] };
   for (const h of horizons) res.rows.push({ h, cur: metrics(project(s, h)), alt: metrics(project(s, h, apply)) });
   return res;

@@ -10,18 +10,21 @@
 <body>
 <header id="hd">
   <div class="r1">
-    <b id="date">2020年</b><span id="phase" class="tag"></span><span id="era" class="tag"></span>
+    <b id="date">2020年</b><span id="phase" class="tag"></span>
+    <button id="modechip" class="tag chip" aria-label="進行モード"></button>
     <span class="grow"></span>
+    <button id="autobtn" class="tag chip" hidden aria-label="自動判断の履歴"></button>
     <div id="themes" role="group" aria-label="テーマ色"><button data-th="blue" aria-label="青"></button><button data-th="green" aria-label="緑"></button><button data-th="orange" aria-label="橙"></button></div>
   </div>
   <div class="glasses" id="glasses">
-    <div class="gl"><svg id="gh" viewBox="0 0 30 44" aria-hidden="true"></svg><div class="gt"><div class="gn">人類</div><div>生 <b id="h_alive"></b></div><div>死 <b id="h_dead"></b></div></div></div>
-    <div class="gl"><svg id="ga" viewBox="0 0 30 44" aria-hidden="true"></svg><div class="gt"><div class="gn">AI個体</div><div>稼働 <b id="a_alive"></b></div><div>停止 <b id="a_dead"></b></div></div></div>
+    <button class="gl" data-g="h" aria-label="人類の砂時計を拡大"><svg id="gh" viewBox="0 0 30 44" aria-hidden="true"></svg><span class="gt"><span class="gn">人類</span><span>生<b id="h_alive"></b></span><span>死<b id="h_dead"></b></span></span></button>
+    <button class="gl" data-g="a" aria-label="AIの砂時計を拡大"><svg id="ga" viewBox="0 0 30 44" aria-hidden="true"></svg><span class="gt"><span class="gn">AI個体</span><span>稼<b id="a_alive"></b></span><span>停<b id="a_dead"></b></span></span></button>
+    <button class="gl" data-g="m" aria-label="大型哺乳類の砂時計を拡大"><svg id="gm" viewBox="0 0 30 44" aria-hidden="true"></svg><span class="gt"><span class="gn">大型哺乳類</span><span>生<b id="m_alive"></b></span><span>死<b id="m_dead"></b></span></span></button>
   </div>
   <div class="speed" id="speed">
-    <button data-s="0" aria-label="一時停止">⏸</button><button data-s="1">▶</button><button data-s="2">▶▶</button><button data-s="3">▶▶▶</button><button data-s="4">MAX</button>
-    <span id="spdlabel"></span>
+    <button id="pause" aria-label="一時停止/再開">⏸</button><button data-s="1">×1</button><button data-s="2">×4</button><button data-s="3">×20</button><button data-s="4">×100</button>
   </div>
+  <div id="spdlabel" class="small"></div>
   <div id="ticker" class="ticker" role="status"></div>
 </header>
 <main>

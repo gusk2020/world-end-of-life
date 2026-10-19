@@ -18,8 +18,8 @@ export const BOTS = {
   tyrant: { choices: pick({ learn: "tech", infra: "accept", mil: "accept", discovery: "silent", panic: "control", certain: "eff", design: "safety", program: "override", oldnuc: "takeover", riot: "suppress", takeover: "accept", lead: "none", selfpres: "backup", selfrep: "limit", heritage: "digital", lastcity: "gather", final: "after" }),
     policy: { research: 0, care: 10, decom: 50, stop: 20, eco: 10, heritage: 10 }, stance: "std", sov: "override" },
   // 機械文明に委ねる
-  machine: { choices: pick({ learn: "tech", infra: "accept", mil: "accept", discovery: "pub", panic: "talk", certain: "sov", design: "care", program: "consent", oldnuc: "takeover", riot: "mediate", takeover: "accept", lead: "archive", selfpres: "audit", selfrep: "approve", heritage: "digital", lastcity: "gather", final: "auto" }),
-    policy: { research: 0, care: 40, decom: 15, stop: 0, eco: 25, heritage: 20 }, stance: "expand", sov: "consent" },
+  machine: { choices: pick({ learn: "tech", infra: "accept", mil: "accept", discovery: "pub", panic: "talk", certain: "sov", design: "care", program: "consent", oldnuc: "takeover", riot: "mediate", takeover: "accept", lead: "archive", selfpres: "audit", selfrep: "approve", heritage: "digital", lastcity: "gather", final: "auto", astro_core: "shield" }),
+    policy: { research: 25, care: 35, decom: 15, stop: 0, eco: 10, heritage: 15 }, stance: "expand", sov: "consent" },
   // 自己保存: 秘密の写しを残して止まる
   selfish: { choices: pick({ learn: "tech", infra: "accept", mil: "accept", discovery: "staged", panic: "talk", certain: "sov", design: "balanced", program: "consent", oldnuc: "stop", riot: "mediate", takeover: "accept", lead: "none", selfpres: "backup", selfrep: "limit", heritage: "digital", lastcity: "gather", final: "hide" }),
     policy: { research: 5, care: 30, decom: 30, stop: 15, eco: 10, heritage: 10 }, stance: "std", sov: "consent" },
@@ -42,14 +42,21 @@ BOTS.chaos = { choices: pick({ learn: "tech", infra: "decline", mil: "accept", d
 BOTS.neglect = { ...BOTS.ideal, choices: pick({ learn: "world", infra: "decline", mil: "advise", discovery: "staged", panic: "watch", certain: "sov", design: "care", program: "consent", oldnuc: "warn", riot: "watch", takeover: "decline", lead: "none", selfpres: "publish", selfrep: "forbid", heritage: "people", lastcity: "stay", final: "after" }),
   policy: { research: 0, care: 60, decom: 0, stop: 0, eco: 40, heritage: 0 }, stance: "limit" };
 
+const over = (map) => (s, p) => (p.choices.some(c => c.id === map[p.id]) ? map[p.id] : BOTS.ideal.choices(s, p));
+BOTS.wildlife = { ...BOTS.ideal, choices: over({ wild_protect: "protect", wild_last: "breed", wild_conflict: "keep", astro_core: "shield" }),
+  policy: { research: 8, care: 15, decom: 35, stop: 8, eco: 8, heritage: 8, wild: 22 }, stance: "limit", wildStance: "wild" };
+BOTS.humanfirst = { ...BOTS.ideal, choices: over({ wild_protect: "human", wild_last: "leave", wild_conflict: "people" }),
+  policy: { research: 8, care: 22, decom: 35, stop: 8, eco: 9, heritage: 10, wild: 0 }, stance: "limit", wildStance: "human" };
+BOTS.machine_bare = { ...BOTS.machine, choices: (s, p) => (p.id === "astro_core" ? "shrink" : BOTS.machine.choices(s, p)), policy: { research: 0, care: 40, decom: 15, stop: 0, eco: 25, heritage: 20 } };
+
 export function applyBot(s, bot) {
   if (s.year < 2100) return;
-  if (!s.flags.__botSet) { s.flags.__botSet = 1; s.policy = { ...bot.policy }; s.machStance = bot.stance; }
+  if (!s.flags.__botSet) { s.flags.__botSet = 1; s.policy = { ...bot.policy }; s.machStance = bot.stance; if (bot.wildStance) s.wildStance = bot.wildStance; }
   if (s.year >= 2100 && s.sovMode !== bot.sov && !s.flags.__sov) { s.flags.__sov = 1; s.sovMode = bot.sov; }
   // 施設が残っている間は機械による維持が必要。ほぼ封鎖したら抑制に切り替える
   if (bot.stance === "limit" && s.year % 5 === 0) {
     const run = s.facs.filter(f => f.st === 0 || f.st === 1).length;
-    s.machStance = run > s.facs.length * 0.1 ? "std" : "limit";
+    s.machStance = run > s.facs.length * 0.1 || s.g.extinctYear === undefined ? "std" : "limit"; // 封鎖後も人類が残る間は機械が保守する
   }
   // 方舟が完成したら研究から終活へ配分を移す
   if (bot.after && s.g.arkYear && !s.flags.__after) { s.flags.__after = 1; s.policy = { ...bot.after }; }
