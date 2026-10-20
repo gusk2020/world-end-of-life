@@ -94,6 +94,7 @@ export function migrate(s) { // 旧セーブ(v1)の読み込み
   if (!g.popHist) g.popHist = []; if (!g.popEv) g.popEv = { flat: 0, grow: 0 };
   if (s.policy.wild === undefined) s.policy.wild = 0;
   for (const c of s.countries) { if (c.hope === undefined) c.hope = 1.05; if (c.ex === undefined) c.ex = exposureOf(c.id); }
+  s.holdAuto = false; // 観察中に保存された場合も、ロード時は観察を破棄する
   s.v = 3; return s;
 }
 export const total = (s) => s.countries.reduce((p, c) => p + c.y + c.a + c.o, 0);
@@ -465,7 +466,7 @@ export function tick(s) {
   if (s.ended || s.pending) return;
   const ext = s.g.extinctYear !== undefined;
   checkEvents(s);
-  for (let k = 0; s.pending && autoHandles(s, s.pending.id) && k < 4; k++) { autoResolve(s); checkEvents(s); }
+  for (let k = 0; s.pending && !s.holdAuto && autoHandles(s, s.pending.id) && k < 4; k++) { autoResolve(s); checkEvents(s); } // holdAuto: 観察中は自動で処理せず保留し、観察の終了後に処理する(UI側の指示)
   if (s.pending) return;
   const Pb = total(s), Bb = s.g.hBorn, Dd0 = s.g.hDead, ab0 = s.g.aiBuilt, as0 = s.g.aiStopped, mt0 = mammalTotals(s);
   stepAstro(s, tx => addLog(s, tx, "astro"));
@@ -712,6 +713,7 @@ function autoPick(s, ev) {
   return { i: bi, why: `${contrib.join("・") || "既定方針"}を重視する価値観に基づく。${urgent.length ? "状況: " + urgent.join("、") + "。" : ""}${lam < .5 ? `過去の判断が${n}件と少ないため既定の初期方針を併用。` : `過去の判断${n}件から算出。`}` };
 }
 export function autoChoiceFor(s, evId) { const ev = EVENTS.find(e => e.id === evId); return ev.ch[autoPick(s, ev).i][0]; }
+export function resolveAutoNow(s) { if (s.pending && autoHandles(s, s.pending.id)) { autoResolve(s); return true; } return false; }
 function autoResolve(s) {
   const p = s.pending, ev = EVENTS.find(e => e.id === p.id), before = metrics(s), { i, why } = autoPick(s, ev), c = ev.ch[i];
   c[3](s); s.chosen.push({ y: s.year, ev: ev.title, ch: c[1], e: ev.id, c: c[0], auto: true });

@@ -283,5 +283,71 @@ console.log("\n■ 14. 砂時計の表示モデル(粒は視覚表現。数値�
   ok(S.fmtShort(7.8e9) === "78.0億" && S.fmtShort(123456) === "12万" && S.fmtShort(3292) === "3,292" && S.fmtScale(5e7) === "5000万" && S.fmtScale(2.5e8) === "2.5億", "省略表記: 78.0億 / 12万 / 3,292、縮尺: 5000万 / 2.5億");
 }
 
+console.log("\n■ 15. 観察フェーズ(UI状態とシミュレーション状態の分離・イベントの保留と順序)");
+{
+  const F = await import("../js/flow.js");
+  // --- FlowController の単体
+  const pf = { sec: 5, style: "stop" }, fc = new F.FlowController(pf);
+  fc.start(); const r0 = fc.remain; fc.advance(1.5); ok(fc.active && Math.abs(fc.remain - (r0 - 1.5)) < 1e-9 && fc.rate(false) === 0, "観察(停止): 残り秒数が減り、ゲーム時間は進まない(0年/秒)");
+  fc.start(); ok(fc.remain === 5, "二重にstartしてもタイマーは1本(残りを戻すだけ)");
+  pf.style = "slow"; ok(fc.rate(false) === F.SLOW_YPS && fc.rate(true) === 0, `観察(低速): ${F.SLOW_YPS}年/秒(2秒で1年)。手動の一時停止中は0`);
+  for (const sec of F.OBSERVE_SECS) { const q = new F.FlowController({ sec, style: "stop" }); q.start(); let n = 0; while (!q.done() && n++ < 1e5) q.advance(1 / 30); ok(Math.abs(n / 30 - sec) < .1, `観察時間${sec}秒で終了(${(n / 30).toFixed(2)}秒)`); }
+  // --- 観察の有無・方式・モードで、シミュレーションの結果が変わらないこと
+  const bot = BOTS.ideal;
+  function sim(mode, prefs, speed = 100, seed = 11) {
+    const S = E.newGame(seed); S.mode = mode; const ses = new F.Session(E, prefs); ses.bind(S); ses.afterTick = st => applyBot(st, bot);
+    const rec = { shown: [], windows: [], bad: 0 }; let t = 0, frames = 0, cur = null; const dt = 1 / 30;
+    while (!S.ended && frames++ < 4e6) {
+      t += dt; const wasObs = ses.observing, y0 = S.year;
+      const out = ses.frame(dt, { paused: false, speed, blocked: false });
+      if (out.ended && cur) { cur.t1 = t; cur.y1 = S.year; rec.windows.push(cur); cur = null; if (S.holdAuto && !ses.observing) rec.bad++; }
+      if (out.started || (!wasObs && ses.observing && !cur)) cur = { t0: t, y0: S.year, pend: false };
+      if (ses.observing && cur && S.pending) cur.pend = true;
+      if (ses.observing && cur) { /* 観察中にモーダルを出さない */ }
+      if (S.pending && !ses.observing) { rec.shown.push({ t, id: S.pending.id, y: S.year }); const c = bot.choices(S, S.pending); E.choose(S, c); applyBot(S, bot); ses.decided(false); if (ses.observing) cur = { t0: t, y0: S.year, pend: false }; }
+    }
+    return { S, t, rec, frames };
+  }
+  const key = (r) => JSON.stringify([r.S.ended && r.S.ended.id, r.S.ended && r.S.ended.scores, r.S.year, r.S.g.extinctYear, r.S.chosen.map(c => c.e + ":" + c.c + "@" + c.y), r.S.series.h, r.S.series.a, r.S.series.m, r.S.autoLog.map(a => a.id + ":" + a.label)]);
+  const modes = ["manual", "semi", "auto"], cfgs = [{ sec: 3, style: "stop" }, { sec: 5, style: "slow" }, { sec: 10, style: "stop" }, { sec: 3, style: "slow" }];
+  for (const mode of modes) {
+    const base = sim(mode, { sec: 0, style: "stop" }); const kb = key(base);
+    ok(!!base.S.ended, `${mode}: 観察なしの基準が完走(${base.S.ended && base.S.ended.name})`);
+    for (const cfg of mode === "manual" ? cfgs.slice(0, 3) : cfgs.slice(1, 3)) {
+      const r = sim(mode, cfg), same = key(r) === kb;
+      ok(same && !!r.S.ended, `${mode}・観察${cfg.sec}秒・${cfg.style === "stop" ? "停止" : "低速"}: 完走し、人口・施設・AI・哺乳類・判断の順序・結末が観察なしと完全に一致`);
+      const w = r.rec.windows, durOk = w.every(x => Math.abs((x.t1 - x.t0) - cfg.sec) < .12 || x.t1 - x.t0 < cfg.sec + .12), yrs = w.map(x => x.y1 - x.y0);
+      ok(w.length > 20 && durOk, `${mode}・${cfg.sec}秒: 観察${w.length}回、各回およそ${cfg.sec}秒`);
+      if (cfg.style === "stop") ok(yrs.every(y => y === 0), "停止観察: 観察中にゲーム内の年は進まない");
+      else ok(yrs.every(y => y <= Math.ceil(cfg.sec * F.SLOW_YPS) + 1) && yrs.some(y => y >= 1), `低速観察: 進んだ分だけ状態が更新(最大${Math.max(...yrs)}年/${cfg.sec}秒)`);
+      const dup = new Set(); let dupN = 0; for (const c of r.S.chosen) { const k = c.e + "@" + c.y; if (dup.has(k) && !["wild_last", "citydecline", "wild_conflict", "astro_core", "oldnuc", "riot", "takeover"].includes(c.e)) dupN++; dup.add(k); }
+      ok(dupN === 0 && r.rec.bad === 0 && r.S.holdAuto === false, "イベントの消失・重複なし、保留フラグは観察のたびに解除");
+      if (cfg.style === "slow" && mode === "manual") ok(w.some(x => x.pend), "低速観察中に起きたイベントは保留され(モーダルを出さず)、観察の終了後に処理");
+      const inWin = r.rec.shown.filter(s => w.some(x => s.t > x.t0 + .05 && s.t < x.t1 - .05)).length; ok(inWin === 0, "観察中は次のイベント選択画面を表示しない");
+      const gaps = []; for (let i = 1; i < r.rec.shown.length; i++) gaps.push(r.rec.shown[i].t - r.rec.shown[i - 1].t);
+      if (mode === "manual") ok(Math.min(...gaps) >= cfg.sec - .12, `連続イベントでも、次の選択画面まで最低${cfg.sec}秒の観察(最短${Math.min(...gaps).toFixed(2)}秒)`);
+    }
+  }
+  // --- 手動の一時停止との競合・スキップ・速度の復帰
+  const S2 = E.newGame(3); const ses = new F.Session(E, { sec: 5, style: "slow" }); ses.bind(S2); S2.mode = "manual";
+  ses.startObserve(); const rem0 = ses.flow.remain; for (let i = 0; i < 60; i++) ses.frame(1 / 30, { paused: true, speed: 100, blocked: false });
+  ok(ses.observing && ses.flow.remain === rem0 && S2.year === 2020, "手動で一時停止中は、観察のタイマーも時間も止まる(意図を優先)");
+  const y2 = S2.year; for (let i = 0; i < 90; i++) ses.frame(1 / 30, { paused: false, speed: 100, blocked: false }); ok(ses.flow.remain < rem0 - 2.9 && S2.year >= y2, "再開すると観察の続きから進む");
+  const o2 = ses.skip(true); ok(!ses.observing && S2.holdAuto === false && o2.ended, "スキップで観察を即終了(保留フラグも解除)");
+  ok(ses.decided(true) === false && !ses.observing, "手動で一時停止中の判断確定では、観察を始めない");
+  ok(ses.decided(false) === true && ses.observing && S2.holdAuto === true, "一時停止していなければ、判断の確定後に観察が始まる");
+  const yb = S2.year; for (let i = 0; i < 400; i++) ses.frame(1 / 30, { paused: false, speed: 100, blocked: true }); ok(S2.year === yb && ses.flow.remain === 5, "他の画面で止めている間(blocked)は進まない");
+  ses.bind(S2); ok(!ses.observing && S2.holdAuto === false, "新規・ロード時は観察を破棄する");
+  const sp = 4; const before = JSON.stringify([ses.prefs, sp]); ses.startObserve(); for (let i = 0; i < 200; i++) ses.frame(1 / 30, { paused: false, speed: sp, blocked: false }); ok(!ses.observing && JSON.stringify([ses.prefs, sp]) === before, "観察の終了後はユーザーの速度設定のまま復帰(観察は速度設定を書き換えない)");
+  // --- 保留と終了後の処理(自動モード)
+  const S3 = E.newGame(4); while (S3.year < 2100) { E.tick(S3); if (S3.pending) E.choose(S3, S3.pending.choices[0].id); } S3.mode = "auto"; delete S3.done.learn; delete S3.done.infra; delete S3.done.mil;
+  const s3 = new F.Session(E, { sec: 3, style: "slow" }); s3.bind(S3); s3.startObserve(); let held = false; for (let i = 0; i < 75; i++) { s3.frame(1 / 30, { paused: false, speed: 100, blocked: false }); if (S3.pending) held = true; }
+  ok(held && S3.autoLog.filter(a => ["learn", "infra", "mil"].includes(a.id)).length === 0, "観察中に起きた自動対象のイベントは、自動で処理せず保留する");
+  const a0 = S3.autoLog.length; for (let i = 0; i < 80; i++) s3.frame(1 / 30, { paused: false, speed: 100, blocked: false });
+  ok(S3.autoLog.length === a0 + 1 && S3.autoLog[a0].id === "learn", "観察の終了後に、保留したイベントを順番どおり1件だけ自動処理(次の観察へ)");
+  for (let i = 0; i < 3000 && S3.autoLog.filter(a => ["learn", "infra", "mil"].includes(a.id)).length < 3; i++) s3.frame(1 / 30, { paused: false, speed: 100, blocked: false });
+  const ids = S3.autoLog.filter(a => ["learn", "infra", "mil"].includes(a.id)).map(a => a.id); ok(JSON.stringify(ids) === JSON.stringify(["learn", "infra", "mil"]), "連続して起きたイベントは重複・欠落・順序逆転なく処理される: " + ids.join(">"));
+}
+
 console.log(fail ? `\n失敗 ${fail} 件` : "\nすべて成功");
 process.exit(fail ? 1 : 0);

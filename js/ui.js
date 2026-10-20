@@ -4,16 +4,18 @@ import { MAP } from "./mapdata.js";
 import { FACTYPES } from "./data.js";
 import { SITES, TYPE_NAME, MODES } from "./heritage.js";
 import { MAMMAL_DEFINITION, STANCE_NAME, GROUPS } from "./life.js";
+import { Session, OBSERVE_SECS, STYLE_NAMES, SLOW_YPS } from "./flow.js";
 import { SandGlass, chooseScale, grainsFor, FIXED, FIXED_NAMES, fmtScale, fmtShort, loop as sandLoop, setQuality, kick as sandKick } from "./sand.js";
 
 const $ = (id) => document.getElementById(id);
 const SAVE = "weol.save.", SETKEY = "weol.settings", SPEEDS = [0, 1, 4, 20, 100];
 let S = null, paused = false, speedIdx = 1, sel = null, tab = "map", acc = 0, last = performance.now(), lastSaveY = 0, vb = [0, 0, 1000, 500], pathEls = {};
-let settings = { theme: "blue", tutorialDone: false, speed: 1, scale: { h: { auto: true, idx: 1 }, a: { auto: true, idx: 1 }, m: { auto: true, idx: 1 } } }, rgb = "77,166,255", logFilter = "important", draft = null, trendCache = null, prev = {};
+let session = null, shownKey = null, obsNote = null;
+let settings = { theme: "blue", tutorialDone: false, speed: 1, mode: "manual", observe: { sec: 5, style: "stop" }, scale: { h: { auto: true, idx: 1 }, a: { auto: true, idx: 1 }, m: { auto: true, idx: 1 } } }, rgb = "77,166,255", logFilter = "important", draft = null, trendCache = null, prev = {};
 let toastShown = 0;
 
 // ---------- 設定(セーブとは別に保存) ----------
-function loadSettings() { try { const j = JSON.parse(localStorage.getItem(SETKEY)); if (j) settings = { ...settings, ...j, scale: { ...settings.scale, ...(j.scale || {}) } }; } catch { } if (!(settings.speed >= 1 && settings.speed <= 4)) settings.speed = 1; speedIdx = settings.speed; }
+function loadSettings() { try { const j = JSON.parse(localStorage.getItem(SETKEY)); if (j) settings = { ...settings, ...j, scale: { ...settings.scale, ...(j.scale || {}) }, observe: { ...settings.observe, ...(j.observe || {}) } }; } catch { } if (!OBSERVE_SECS.includes(settings.observe.sec)) settings.observe.sec = 5; if (!STYLE_NAMES[settings.observe.style]) settings.observe.style = "stop"; if (!E.MODES[settings.mode]) settings.mode = "manual"; if (!(settings.speed >= 1 && settings.speed <= 4)) settings.speed = 1; speedIdx = settings.speed; }
 function saveSettings() { try { localStorage.setItem(SETKEY, JSON.stringify(settings)); } catch { } }
 function applyTheme(t) {
   if (!["blue", "green", "orange"].includes(t)) t = "blue";
@@ -22,7 +24,7 @@ function applyTheme(t) {
   document.querySelectorAll("[data-th]").forEach(b => b.classList.toggle("on", b.dataset.th === t));
   saveSettings(); setSandColor(); if (S) { paintMap(); head(); }
 }
-function newGame(seed) { S = E.newGame(seed || (Date.now() % 100000) + 1); paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
+function newGame(seed) { S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
 const idx = (id) => S.countries.findIndex(c => c.id === id);
 const fmtN = (n) => Math.round(n).toLocaleString("en-US");
 
@@ -158,7 +160,8 @@ function setSandColor() { for (const k of KINDS) compact[k] && compact[k].setCol
 function phaseName() { const y = S.year; return y < E.DISCOVERY ? "観察期" : y < E.CERTAIN ? "発見後" : y < E.PROGRAM ? "確定後" : S.g.extinctYear !== undefined ? "消滅後" : "終活期"; }
 function speedText() {
   const mult = SPEEDS[speedIdx], toGoal = S.year < E.PROGRAM ? `2100年まで約${Math.max(1, Math.round((E.PROGRAM - S.year) / mult))}秒` : `100年で約${Math.round(100 / mult)}秒`;
-  return `${paused ? "一時停止中(速度 ×" + mult + " を維持)" : "×" + mult}: 現実1秒=ゲーム内${mult}年。×1は1年=1秒。${toGoal}`;
+  const ob = session.observing ? `観察中(${settings.observe.style === "stop" ? "ゲーム時間停止" : "低速"})。終了後に ×${mult} へ戻る。` : "";
+  return `${ob}${paused ? "一時停止中(速度 ×" + mult + " を維持)" : "×" + mult}: 現実1秒=ゲーム内${mult}年。×1は1年=1秒。${toGoal}`;
 }
 function head() {
   $("date").textContent = S.year + "年"; $("phase").textContent = phaseName();
@@ -170,6 +173,7 @@ function head() {
   hourglasses();
   const un = S.autoLog.filter(a => !a.seen), imp = un.filter(a => a.important);
   const ab = $("autobtn"); ab.hidden = !S.autoLog.length; ab.textContent = `自動判断${un.length ? " 未確認" + un.length : ""}`; ab.classList.toggle("alert", imp.length > 0);
+  renderObs();
   const l = S.log[S.log.length - 1]; $("ticker").textContent = imp.length ? `⚠ 重要な自動判断: ${imp[imp.length - 1].title}→「${imp[imp.length - 1].label}」(タップで確認)` : l ? `${l.y} ${l.t}` : "";
 }
 const bar = (v) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
@@ -223,8 +227,7 @@ function prefBars() {
 }
 function policyView() {
   ensureDraft(); const prog = E.programActive(S), p = draft.policy, sum = sumP(p);
-  $("policy").innerHTML = `<h3>進行モード(2100年以降)</h3><div class="seg">${Object.entries(E.MODES).map(([k, nm]) => `<button data-mode="${k}" class="${S.mode === k ? "on" : ""}">${nm}</button>`).join("")}</div>
-  <div class="small">${MODE_DESC[S.mode]}${S.year < E.PROGRAM ? "(自動は2100年から有効。それまでは常に手動で、ここでの判断が価値観になる)" : ""}いつでも変更できる。</div>
+  $("policy").innerHTML = `<h3>進行設定</h3>${progHTML()}
   <details><summary>あなたの価値観(自動判断の基準)</summary>${prefBars()}</details>
   <h3>資源配分</h3><div class="card small">${prog ? "管理リソースの配分。人口には直接触れられません。" : "2100年までは観察期。配分は2100年から効力を持ちます。"}変更は下書きで、見込みを見てから「適用」します。</div>${E.CHANNELS.map(([k, n]) => `<div class="sl"><label><span>${n}</span><span id="pv_${k}">${((p[k] || 0) / sum * 100).toFixed(0)}%</span></label><input type="range" min="0" max="100" value="${p[k] || 0}" data-k="${k}" aria-label="${n}"><div class="small">${CH_NOTE[k]}</div></div>`).join("")}
   <div class="row">${Object.entries({ balanced: "均衡", care: "終活重視", research: "研究重視", safety: "停止重視", legacy: "自然・遺産", wild: "野生保護" }).map(([k, n]) => `<button data-pre="${k}">${n}</button>`).join("")}</div>
@@ -238,7 +241,7 @@ function policyView() {
   <h3>変更の見込み(現状維持との差)</h3><div id="pvbox" class="small">${dirty() ? "計算中…" : "変更なし"}</div>
   <div class="row" style="margin-top:8px"><button id="apply" ${dirty() ? "" : "disabled"}>この方針を適用</button><button id="revert" ${dirty() ? "" : "disabled"}>下書きを戻す</button></div>`;
   const q = (sel, fn) => $("policy").querySelectorAll(sel).forEach(fn);
-  q("[data-mode]", b => b.onclick = () => setMode(b.dataset.mode));
+  bindProg($("policy"));
   q("input[type=range]", r => { r.oninput = () => { draft.policy[r.dataset.k] = +r.value; const s2 = sumP(draft.policy); for (const [k] of E.CHANNELS) $("pv_" + k).textContent = ((draft.policy[k] || 0) / s2 * 100).toFixed(0) + "%"; }; r.onchange = () => policyView(); });
   q("[data-pre]", b => b.onclick = () => { draft.policy = { ...E.PRESETS[b.dataset.pre] }; policyView(); });
   q("[data-sov]", b => b.onclick = () => { draft.sovMode = b.dataset.sov; policyView(); });
@@ -253,7 +256,37 @@ function policyView() {
     $("pvbox").innerHTML = `<table class="pv"><tr><th></th>${I.METRICS.map(x => `<th>${x[1]}</th>`).join("")}</tr>${r.rows.map(x => `<tr><td>${x.h}年後</td>${I.METRICS.map(([k]) => { const d = x.alt[k] - x.cur[k]; return `<td>${Math.abs(d) < .5 ? "±0" : (d > 0 ? "+" : "−") + Math.abs(d).toFixed(0)}</td>`; }).join("")}</tr>`).join("")}</table><div class="small">現状維持との差(各指標0〜100、人口は2020年比%)。10年後=短期、40年後=長期の見込み。人口は直接操作できないため、幸福や安全性を通じた間接的な差。</div>`;
   }, 40);
 }
-function setMode(k) { S.mode = k; $("ticker").textContent = `進行モードを「${E.MODES[k]}」にした。${S.year < E.PROGRAM ? "自動は2100年から有効。" : ""}`; head(); if (tab === "policy") policyView(); }
+function setMode(k) { S.mode = k; settings.mode = k; saveSettings(); $("ticker").textContent = `進行モードを「${E.MODES[k]}」にした。${S.year < E.PROGRAM ? "自動は2100年から有効。" : ""}`; head(); syncProg(); }
+// ---------- 進行設定(モード・観察時間・観察方法)。イベント画面と方針タブで共通。変更は即座に反映し、次の変更まで維持される ----------
+const STYLE_LABEL = { stop: "ゲーム時間停止", slow: "低速進行" };
+function progHTML() {
+  return `<div class="progset"><div class="pl">進行モード${S.year < E.PROGRAM ? "(自動は2100年から有効)" : ""}</div><div class="seg pseg">${Object.entries(E.MODES).map(([k, nm]) => `<button data-pm="${k}" class="${S.mode === k ? "on" : ""}">${nm}</button>`).join("")}</div>
+  <div class="pl">観察時間(判断のあと地図と砂時計を見る時間)</div><div class="seg pseg">${OBSERVE_SECS.map(n => `<button data-po="${n}" class="${settings.observe.sec === n ? "on" : ""}">${n}秒</button>`).join("")}</div>
+  <div class="pl">観察方法</div><div class="seg pseg">${Object.keys(STYLE_LABEL).map(k => `<button data-ps="${k}" class="${settings.observe.style === k ? "on" : ""}">${STYLE_LABEL[k]}${k === "slow" ? "<br><small>2秒で1年</small>" : ""}</button>`).join("")}</div>
+  <div class="small pdesc">${MODE_DESC[S.mode]}</div></div>`;
+}
+function bindProg(root) {
+  root.querySelectorAll("[data-pm]").forEach(b => b.onclick = () => setMode(b.dataset.pm));
+  root.querySelectorAll("[data-po]").forEach(b => b.onclick = () => { settings.observe.sec = +b.dataset.po; saveSettings(); syncProg(); });
+  root.querySelectorAll("[data-ps]").forEach(b => b.onclick = () => { settings.observe.style = b.dataset.ps; saveSettings(); syncProg(); });
+}
+function syncProg() {
+  document.querySelectorAll("[data-pm]").forEach(b => b.classList.toggle("on", b.dataset.pm === S.mode));
+  document.querySelectorAll("[data-po]").forEach(b => b.classList.toggle("on", +b.dataset.po === settings.observe.sec));
+  document.querySelectorAll("[data-ps]").forEach(b => b.classList.toggle("on", b.dataset.ps === settings.observe.style));
+  document.querySelectorAll(".pdesc").forEach(e => e.textContent = MODE_DESC[S.mode]);
+  if (typeof updateGo === "function") updateGo();
+}
+// ---------- 観察バー(画面下。地図と砂時計は隠さない) ----------
+function renderObs() {
+  const bar = $("obsbar"), on = session.observing; bar.hidden = !on; if (!on) { obsNote = null; return; }
+  const f = session.flow, mode = settings.observe.style === "stop" ? "ゲーム時間停止" : "低速進行(2秒で1年)";
+  $("obstext").textContent = `観察中: ${mode} / 残り ${Math.ceil(f.remain)}秒${paused ? "(一時停止中)" : ""}`;
+  $("obsfill").style.width = (100 * (1 - f.remain / Math.max(1, f.total))).toFixed(0) + "%";
+  const n = $("obsauto"); n.textContent = obsNote ? `自動判断: ${obsNote.title}→「${obsNote.label}」(タップで詳細)` : ""; n.hidden = !obsNote;
+}
+function skipObserve() { const out = session.skip(paused); onFlowOut(out); head(); }
+function onFlowOut(out) { if (out.autoDecisions > 0) obsNote = S.autoLog[S.autoLog.length - 1] || null; if (out.ended && !session.observing) obsNote = null; }
 
 // ---------- 遺産 ----------
 function sitesView() {
@@ -312,7 +345,7 @@ function sysView() {
   $("tut").onclick = () => tutorial(0);
   $("ng").onclick = () => { if ($("ng").dataset.arm) newGame(); else { $("ng").dataset.arm = 1; $("ng").textContent = "本当に破棄して最初から(もう一度押す)"; } };
 }
-function load(n) { try { const j = JSON.parse(localStorage.getItem(SAVE + n)); if (!j || !j.countries) throw 0; S = E.migrate(j); paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; refresh(true); snapCompact(); modal(); show("map"); } catch { $("ticker").textContent = "読み込めませんでした"; } }
+function load(n) { try { const j = JSON.parse(localStorage.getItem(SAVE + n)); if (!j || !j.countries) throw 0; S = E.migrate(j); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; refresh(true); snapCompact(); modal(); show("map"); } catch { $("ticker").textContent = "読み込めませんでした"; } }
 
 // ---------- イベント / 自動判断 / 終幕 ----------
 function chips(pv) { return pv ? `<span class="pv">即時: ${I.fmtDiff(pv.now)}<br>15年後(選ばない場合との差): ${I.fmtDiff(pv.later)}</span>` : `<span class="pv">見込みを計算中…</span>`; }
@@ -333,13 +366,36 @@ function modal() {
     m.hidden = false; $("again").onclick = () => { m.hidden = true; newGame(); }; $("close").onclick = () => { m.hidden = true; }; return;
   }
   if (!S.pending) { m.hidden = true; return; }
-  const p = S.pending, key = p.id + p.year;
-  b.innerHTML = `<div class="small">${S.year}年 重要な判断</div><h2>${p.title}</h2><div class="body clamp" id="evb">${p.body}</div><button class="link" id="more" hidden aria-expanded="false">全文を表示 ▼</button>${p.choices.map(c => `<button class="opt" data-c="${c.id}">${c.label}<small>${c.note}</small><span id="pv_${c.id}">${chips(null)}</span></button>`).join("")}`;
+  const p = S.pending, key = p.id + p.year; shownKey = key; let selected = null;
+  b.innerHTML = `<div class="small">${S.year}年 重要な判断</div><h2>${p.title}</h2><div class="body clamp" id="evb">${p.body}</div><button class="link" id="more" hidden aria-expanded="false">全文を表示 ▼</button>
+  <div class="sub">選択肢(1つタップして選ぶ)</div><div id="choices">${p.choices.map(c => `<button class="opt" data-c="${c.id}" aria-pressed="false">${c.label}<small>${c.note}</small><span id="pv_${c.id}">${chips(null)}</span></button>`).join("")}</div>
+  <div class="sub">進行設定(次に変えるまで維持)</div>${progHTML()}
+  <div class="gobar"><div class="small" id="gohint"></div><button class="go" id="go">この設定で進行</button></div>`;
   m.hidden = false;
   const evb = $("evb"), more = $("more");
   if (evb.scrollHeight > evb.clientHeight + 2) { more.hidden = false; more.onclick = () => { const o = evb.classList.toggle("clamp"); more.textContent = o ? "全文を表示 ▼" : "要約に戻す ▲"; more.setAttribute("aria-expanded", !o); }; evb.onclick = more.onclick; }
-  b.querySelectorAll("[data-c]").forEach(x => x.onclick = () => choose(x.dataset.c));
+  const autoWould = () => E.autoHandles(S, p.id);
+  window.updateGo = () => {
+    const go = $("go"), hint = $("gohint"); if (!go || !S.pending) return;
+    const c = p.choices.find(x => x.id === selected);
+    if (c) { go.disabled = false; go.textContent = "この設定で進行"; hint.textContent = `選択中: 「${c.label}」`; }
+    else if (autoWould()) { go.disabled = false; go.textContent = "この設定で進行(AIが判断)"; hint.textContent = `${E.MODES[S.mode]}モード: 過去の選択傾向から自動で判断します(選択肢を選べば手動で決められます)`; }
+    else { go.disabled = true; go.textContent = "この設定で進行"; hint.textContent = "上の選択肢を1つタップしてください"; }
+  };
+  b.querySelectorAll("[data-c]").forEach(x => x.onclick = () => { selected = x.dataset.c; b.querySelectorAll("[data-c]").forEach(y => { const on = y === x; y.classList.toggle("sel", on); y.setAttribute("aria-pressed", on); }); updateGo(); });
+  bindProg(b);
+  $("go").onclick = () => confirmDecision(selected);
+  updateGo();
   setTimeout(() => { if (!S.pending || S.pending.id + S.pending.year !== key) return; const pv = I.previewChoices(S); for (const c of p.choices) { const el = $("pv_" + c.id); if (el) el.innerHTML = chips(pv[c.id]); } }, 40);
+}
+// 判断の確定(手動の選択、または自動モードでAIに任せる)。確定後はイベント画面を閉じて観察フェーズへ
+function confirmDecision(selected) {
+  if (!S.pending) { $("modal").hidden = true; return; }
+  if (selected) choose(selected);
+  else if (E.autoHandles(S, S.pending.id)) { const before = I.metrics(S); E.resolveAutoNow(S); obsNote = S.autoLog[S.autoLog.length - 1] || null; void before; $("modal").hidden = true; trendCache = null; draft = null; refresh(true); }
+  else return;
+  shownKey = null; window.updateGo = null;
+  session.decided(paused); if (session.observing) obsNote = obsNote; head();
 }
 function choose(id) {
   if (!S.pending) { $("modal").hidden = true; return; }
@@ -355,21 +411,21 @@ function togglePause() { paused = !paused; head(); }
 function refresh(full) { head(); paintMap(); cardUpdate(); if (full || tab === "status") statusView(); if (full) { policyView(); sitesView(); logView(); sysView(); } }
 function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000); last = now;
-  if (!paused && !S.pending && !S.ended && ($("modal").hidden || big)) {
-    acc += SPEEDS[speedIdx] * dt; let n = 0;
-    while (acc >= 1 && !S.pending && !S.ended && n++ < 200) { acc--; E.tick(S); }
-    if (acc > 5) acc = 0;
-    if (n) { head(); paintMap(); cardUpdate(); if (tab === "log") logView(); if (S.year - lastSaveY >= 25) { lastSaveY = S.year; try { localStorage.setItem(SAVE + "auto", JSON.stringify(S)); } catch { } } }
-    if (S.pending || S.ended) { modal(); head(); }
-  }
+  const blocked = !$("modal").hidden && !big;
+  const out = session.frame(dt, { paused, speed: SPEEDS[speedIdx], blocked });
+  if (out.ticks || out.started || out.ended || out.autoDecisions) { onFlowOut(out); head(); paintMap(); cardUpdate(); if (tab === "log") logView(); if (out.autoDecisions && tab === "status") statusView(); if (S.year - lastSaveY >= 25) { lastSaveY = S.year; try { localStorage.setItem(SAVE + "auto", JSON.stringify(S)); } catch { } } }
+  else if (session.observing) renderObs();
+  if (S.ended && $("modal").hidden && !S.__endShown) { S.__endShown = true; modal(); head(); }
+  else if (S.pending && !session.observing && shownKey !== S.pending.id + S.pending.year && !S.ended) { modal(); head(); } // 観察中に起きたイベントは保留し、終了後に1件ずつ表示する
   requestAnimationFrame(frame);
 }
+
 function show(t) {
   tab = t; document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t)); document.querySelectorAll(".tab").forEach(s => s.classList.toggle("on", s.id === t));
   if (t === "status") statusView(); if (t === "policy") policyView(); if (t === "sites") sitesView(); if (t === "log") logView(); if (t === "sys") sysView();
 }
 
-loadSettings();
+loadSettings(); session = new Session(E, settings.observe);
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => show(b.dataset.t));
 document.querySelectorAll("#speed [data-s]").forEach(b => b.onclick = () => setSpeed(+b.dataset.s));
 $("pause").onclick = togglePause;
@@ -377,6 +433,8 @@ document.querySelectorAll("#themes [data-th]").forEach(b => b.onclick = () => { 
 document.querySelectorAll("#glasses [data-g]").forEach(b => b.onclick = () => glassModal(b.dataset.g));
 $("modechip").onclick = () => setMode({ manual: "semi", semi: "auto", auto: "manual" }[S.mode]);
 $("autobtn").onclick = autoListModal;
+$("obsskip").onclick = skipObserve;
+$("obsauto").onclick = autoListModal;
 $("ticker").onclick = () => { if (S.autoLog.some(a => !a.seen)) autoListModal(); else show("log"); };
 $("layer").onchange = paintMap;
 $("zin").onclick = () => { const r = $("svg").getBoundingClientRect(); zoom(1 / 1.5, r.left + r.width / 2, r.top + r.height / 2); };
@@ -387,5 +445,5 @@ applyTheme(settings.theme);
 initCompact();
 newGame();
 if (!settings.tutorialDone) tutorial(0);
-window.__game = { sand: { compact, get big() { return big; }, loop: sandLoop, setQuality, get bigGrains() { return bigGrains; }, get K() { return compactK; }, kick: sandKick }, refresh, get S() { return S; }, E, I, setSpeed, togglePause, applyTheme, hourglassNumbers, get settings() { return settings; }, get paused() { return paused; }, get speedIdx() { return speedIdx; } };
+window.__game = { get session() { return session; }, skipObserve, sand: { compact, get big() { return big; }, loop: sandLoop, setQuality, get bigGrains() { return bigGrains; }, get K() { return compactK; }, kick: sandKick }, refresh, get S() { return S; }, E, I, setSpeed, togglePause, applyTheme, hourglassNumbers, get settings() { return settings; }, get paused() { return paused; }, get speedIdx() { return speedIdx; } };
 requestAnimationFrame(frame);

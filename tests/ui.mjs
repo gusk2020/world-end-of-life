@@ -17,6 +17,8 @@ console.log("■ 360px 表示・チュートリアル");
 ok(await p.locator("#modal:not([hidden]) #tnext").count() === 1, "初回はチュートリアルが出る");
 for (let i = 0; i < 5; i++) { await p.click("#tnext"); await p.waitForTimeout(50); }
 ok(await p.locator("#modal:not([hidden])").count() === 0, "チュートリアルを最後まで進められる");
+const noObs = () => p.evaluate(() => { window.__game.settings.observe.sec = 0; }); // 既存の検証では観察フェーズを切る(観察は専用の節で検証)
+await noObs();
 const over = () => p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 for (const t of ["map", "status", "policy", "sites", "log", "sys"]) { await p.click(`#tabs [data-t=${t}]`); await p.waitForTimeout(150); ok(await over() <= 0, `${t}タブで横スクロールなし`); }
 await p.click("#tabs [data-t=map]");
@@ -163,10 +165,11 @@ await p.click("#pause"); s1 = await st(); ok(!s1.paused && s1.idx === 3, "再開
 await p.evaluate(() => window.__game.togglePause());
 await p.click("[data-t=sys]"); await p.click("[data-sv='2']"); s1 = await st(); ok(s1.idx === 3, "セーブしても速度は初期値に戻らない");
 await p.click("[data-ld='2']"); await p.waitForTimeout(100); s1 = await st(); ok(s1.idx === 3 && s1.paused, "ロード後も速度を維持(ロード直後は一時停止)");
-await p.reload(); await p.waitForTimeout(400); ok((await st()).idx === 3, "再読込後も速度を維持");
+await p.reload(); await p.waitForTimeout(400); ok((await st()).idx === 3, "再読込後も速度を維持"); await noObs();
 ok(await p.locator("#spdlabel").textContent().then(t => /現実1秒/.test(t)), "何倍速かと現実時間の対応を表示");
 // 重要イベント後も維持
-await p.evaluate(() => { const g = window.__game; delete g.S.done.learn; g.S.year = 2024; g.S.pending = null; }); 
+await p.evaluate(() => { const g = window.__game; if (!g.paused) g.togglePause(); document.getElementById("modal").hidden = true; g.S.pending = null; delete g.S.done.learn; g.S.year = 2026; }); // 直前の再読込で進んだゲームの残りを片付けてから、イベントを1件つくる
+
 await p.evaluate(() => window.__game.setSpeed(2)); await p.evaluate(() => { if (window.__game.paused) window.__game.togglePause(); });
 for (let i = 0; i < 60 && !(await p.locator("#modal:not([hidden]) .opt").count()); i++) await p.waitForTimeout(200);
 ok(await p.locator("#modal:not([hidden]) .opt").count() > 0, "重要イベントで自動停止する");
@@ -178,14 +181,14 @@ ok(lines.ch <= lines.lh * 3 + 3, `通常は3行以内に要約表示 (${Math.rou
 if (lines.sh > lines.ch + 2) { await p.click("#more"); const after = await p.evaluate(() => document.getElementById("evb").clientHeight); ok(after > lines.ch, "タップで全文を表示"); }
 else ok(true, "本文が短く要約不要(全文表示)");
 ok(await p.locator("#modal .opt .pv").count() >= 2 && await p.locator("#modal .opt small").count() >= 2, "選択肢の説明と数値は省略されない");
-await p.locator("#modal .opt").first().click(); await p.waitForTimeout(100);
+await p.locator("#modal .opt").first().click(); await p.click("#go"); await p.waitForTimeout(100);
 ok((await st()).idx === 2, "イベント処理後も速度は維持");
 await p.evaluate(() => { if (!window.__game.paused) window.__game.togglePause(); });
 
 console.log("\n■ 進行モード(手動・半自動・完全自動)");
 await adv(2100);
 await p.evaluate(() => { const g = window.__game; g.S.pending = null; g.setSpeed(3); g.togglePause(); });
-await p.click("#tabs [data-t=policy]"); await p.click("[data-mode=auto]");
+await p.click("#tabs [data-t=policy]"); await p.click("#policy [data-pm=auto]");
 ok(await p.evaluate(() => window.__game.S.mode) === "auto", "完全自動に切り替え");
 await p.evaluate(() => { const g = window.__game; if (g.paused) g.togglePause(); });
 await p.waitForTimeout(3500);
@@ -225,6 +228,53 @@ ok(fin.alive > 0 ? fin.K === 1 && fin.top === Math.min(fin.alive, 1000) : true, 
 ok(/1粒 = 1人/.test(fin.legend), "縮尺と1粒の代表個体数を常に明示: " + fin.legend.slice(0, 26));
 await p.click("#gclose"); await adv(2160);
 await p.evaluate(() => { const g = window.__game; const S = g.S; void S; });
+
+console.log("\n■ 観察フェーズ(第4次改修)");
+{
+  await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (!g.paused) g.togglePause(); g.settings.observe.sec = 5; g.settings.observe.style = "stop"; g.settings.mode = "manual"; g.S.mode = "manual"; });
+  // 手動イベントを1件つくり、モーダルを開く
+  const open = (id) => p.evaluate((id) => { const g = window.__game, S = g.S; g.session.flow.cancel(); S.holdAuto = false; S.pending = null; S.year = 2026; delete S.done.learn; S.pending = null; g.E.checkEvents && g.E.checkEvents(S); if (!S.pending) { for (let i = 0; i < 400 && !S.pending; i++) { g.E.tick(S); } } if (g.paused) g.togglePause(); }, id);
+  await p.evaluate(() => { const g = window.__game; g.S.mode = "manual"; g.S.pending = null; for (let i = 0; i < 400 && !g.S.pending; i++) g.E.tick(g.S); if (g.paused) g.togglePause(); });
+  await p.waitForSelector("#modal:not([hidden]) #go", { timeout: 4000 });
+  ok(await p.locator("#modal .progset").count() === 1 && await p.locator("#modal [data-pm]").count() === 3 && await p.locator("#modal [data-po]").count() === 3 && await p.locator("#modal [data-ps]").count() === 2, "イベント画面に進行設定(モード3・観察時間3/5/10秒・停止/低速)がある");
+  ok(await p.locator("#modal [data-po].on").getAttribute("data-po") === "5", "観察時間の既定は5秒");
+  const lay = await p.evaluate(() => { const go = document.getElementById("go").getBoundingClientRect(), bx = document.querySelector("#modal .box"); const small = [...document.querySelectorAll("#modal button")].filter(e => e.getBoundingClientRect().height < 44).length; return { goVis: go.bottom <= innerHeight + 1 && go.top >= 0, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, boxOver: bx.scrollWidth - bx.clientWidth, small, goDis: document.getElementById("go").disabled }; });
+  ok(lay.goVis && lay.over <= 0 && lay.boxOver <= 0 && lay.small === 0, `360pxで「この設定で進行」が見え、横あふれなし・ボタン44px以上(${JSON.stringify(lay)})`);
+  ok(lay.goDis, "選択肢を選ぶまでは進行ボタンが押せない");
+  await p.click("#modal [data-po='3']"); await p.click("#modal [data-ps='slow']");
+  ok(await p.evaluate(() => { const s = JSON.parse(localStorage.getItem("weol.settings")); return s.observe.sec === 3 && s.observe.style === "slow"; }), "設定は保存される(3秒・低速)");
+  await p.click("#modal .opt"); await p.click("#go"); await p.waitForTimeout(200);
+  ok(await p.locator("#obsbar:not([hidden])").count() === 1 && /観察中/.test(await p.textContent("#obstext")), "決定後に観察バー(残り秒数)が出る");
+  ok(await p.locator("#modal:not([hidden])").count() === 0, "観察中はイベント画面を出さない");
+  ok(await p.locator("#obsskip").count() === 1, "スキップボタンがある");
+  const y1 = await p.evaluate(() => window.__game.S.year); await p.waitForTimeout(2200);
+  const y2 = await p.evaluate(() => window.__game.S.year); ok(y2 > y1, `低速観察ではゲーム内時間が進む(${y1}→${y2})`);
+  // 砂時計をタップできる
+  await p.click(".gl[data-g=h]"); await p.waitForTimeout(200);
+  ok(await p.locator("#bigcv").count() === 1, "観察中も砂時計をタップして拡大できる"); await p.click("#gclose");
+  await p.click("#obsskip"); await p.waitForTimeout(200);
+  ok(await p.locator("#obsbar:not([hidden])").count() === 0 || await p.evaluate(() => window.__game.session.observing), "スキップで観察が終わる(連鎖時は次の観察)");
+  // 停止式: 年が動かない
+  await p.evaluate(() => { const g = window.__game; g.session.flow.cancel(); g.S.holdAuto = false; g.S.pending = null; document.getElementById("modal").hidden = true; g.settings.observe.style = "stop"; g.settings.observe.sec = 3; g.session.startObserve(); });
+  const ya = await p.evaluate(() => window.__game.S.year); await p.waitForTimeout(1500);
+  ok(await p.evaluate(() => window.__game.S.year) === ya, "停止式の観察中は年が進まない");
+  const gap = await p.evaluate(() => window.__game.sand.compact.h ? 1 : 1); void gap;
+  // 手動一時停止の優先
+  await p.evaluate(() => { const g = window.__game; if (!g.paused) g.togglePause(); }); const r1 = await p.evaluate(() => window.__game.session.flow.remain); await p.waitForTimeout(1200);
+  ok(await p.evaluate(() => window.__game.session.flow.remain) === r1 && /一時停止/.test(await p.textContent("#obstext")), "手動で一時停止中は観察タイマーも止まる");
+  await p.evaluate(() => { const g = window.__game; g.togglePause(); }); await p.waitForTimeout(3600);
+  ok(!(await p.evaluate(() => window.__game.session.observing)), "再開後、観察が終了する");
+  // 全自動: モーダルなしで進む
+  await p.evaluate(() => { const g = window.__game, S = g.S; g.session.flow.cancel(); S.holdAuto = false; S.pending = null; document.getElementById("modal").hidden = true; S.mode = "auto"; g.settings.mode = "auto"; g.settings.observe.sec = 3; g.settings.observe.style = "stop"; while (S.year < 2100 && !S.ended) { g.E.tick(S); if (S.pending && !g.E.autoHandles(S, S.pending.id)) g.E.choose(S, S.pending.choices[0].id); else if (S.pending) g.E.resolveAutoNow(S); } delete S.done.learn; if (g.paused) g.togglePause(); g.setSpeed(3); });
+  const a0 = await p.evaluate(() => window.__game.S.autoLog.length); let sawModal = false;
+  for (let i = 0; i < 40; i++) { await p.waitForTimeout(250); if (await p.locator("#modal:not([hidden]) #go").count()) sawModal = true; }
+  const a1 = await p.evaluate(() => window.__game.S.autoLog.length);
+  ok(a1 > a0 && !sawModal, `全自動は選択画面なしで判断を進める(自動判断${a1 - a0}件)`);
+  // セーブ/ロード
+  await p.evaluate(() => { const g = window.__game; g.S.mode = "manual"; g.session.startObserve(); });
+  await p.click("#tabs [data-t=sys]"); await p.click("[data-sv='1']"); await p.click("[data-ld='1']"); await p.waitForTimeout(250);
+  ok(await p.evaluate(() => !window.__game.session.observing && window.__game.S.holdAuto === false && window.__game.paused), "観察中のセーブ→ロードで観察は破棄され、一時停止で再開");
+}
 
 console.log("エラー:", errs.length ? errs : "なし"); ok(errs.length === 0, "ページエラーなし");
 await p.screenshot({ path: process.env.SHOT || "/tmp/claude-0/ui360.png" });
