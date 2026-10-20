@@ -252,5 +252,36 @@ console.log("\n■ 13. 大型哺乳類の砂時計・保護の選択");
   ok(pr(ws) > pr(hs), "野生優先(保護区・繁殖支援)は人類優先より野生個体数を保つ");
 }
 
+console.log("\n■ 14. 砂時計の表示モデル(粒は視覚表現。数値の正本は engine.js)");
+{
+  const S = await import("../js/sand.js");
+  const mc = new S.SandModel(28, 40, 2.3, 8), mb = new S.SandModel(332, 385, 5.2, 40);
+  ok(mc.capTop >= 30 && mb.capTop >= 300 && mb.capTop <= S.MAX_GRAINS && mb.capBot <= S.MAX_GRAINS, `粒を置ける数: 小型${mc.capTop}粒・拡大${mb.capTop}粒(上限${S.MAX_GRAINS}粒。数十億個体は描かない)`);
+  let r = 99; const rnd = () => (r = (r * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  let alive = 7.8e9, dead = 0, ever = 7.8e9; const K = 5e7, m = new S.SandModel(332, 385, 5.2, 40); let g0 = S.grainsFor(alive, dead, K); m.setTargets(g0.top, g0.bot); m.snap();
+  let bad = 0, prevNb = 0, maxIn = 0, shrink = 0; const tickGame = () => { const d = 1e7 + rnd() * 3e8, b = 5e6 + rnd() * 1.5e8; alive += b - d; dead += d; ever += b; const g = S.grainsFor(alive, dead, K); m.setTargets(g.top, g.bot); m.addFlow(d / K, b / K); };
+  for (let f = 0; f < 4000; f++) { if (f % 6 === 0) tickGame(); m.step(1 / 60); if (m.Nt < 0 || m.Nb < 0 || m.Nt > m.capTop || m.Nb > m.capBot) bad++; maxIn = Math.max(maxIn, m.inflight()); if (m.Nb < prevNb) shrink++; prevNb = m.Nb; }
+  let g = 0; while (m.step(1 / 60) && g++ < 5000);
+  ok(bad === 0 && maxIn <= m.maxInflight && m.fl.length === 96, `4000フレームの出生/死亡で粒数は範囲内、同時に動く粒は最大${maxIn}個(上限${m.maxInflight})、プール${m.fl.length}で一定`);
+  ok(shrink === 0, "下に積もった累計の粒は(縮尺固定なら)減らない");
+  ok(m.Nt === m.tt && m.Nb === m.tb && m.gap() === 0, `停止後は表示が最新の数値に収束(上${m.Nt}=${m.tt}粒、下${m.Nb}=${m.tb}粒)`);
+  ok(m.stats.drops > 100 && m.stats.adds > 100 && m.stats.landedDrops <= m.stats.drops && m.stats.landedAdds <= m.stats.adds, `死亡=上から下へ落下(${m.stats.drops}粒)、出生=上へ追加(${m.stats.adds}粒)を区別して表示`);
+  const st0 = JSON.stringify(m.stats); for (let i = 0; i < 2000; i++) m.step(1 / 60); ok(JSON.stringify(m.stats) === st0, "ゲームが止まっていれば(出来事が来なければ)新たな粒は生まれない");
+  const m2 = new S.SandModel(332, 385, 5.2, 40); m2.setTargets(300, 0); m2.snap(); let a2 = 7.8e9, d2 = 0; for (let i = 0; i < 5000; i++) { const d = 3e8; a2 -= d; d2 += d; m2.addFlow(d / K, 0); m2.setTargets(S.grainsFor(Math.max(1, a2), d2, K).top, S.grainsFor(a2, d2, K).bot); }
+  m2.step(1 / 60); ok(m2.gap() === 0 && m2.stats.bulk > 0, "高速進行で表示が追いつかない大量の出来事は、まとめて更新して遅延させない");
+  const t0 = Date.now(); const m3 = new S.SandModel(332, 385, 5.2, 40); for (let i = 0; i < 30000; i++) { m3.setTargets((rnd() * 900) | 0, (rnd() * 900) | 0); m3.addFlow(rnd() * 3, rnd() * 3); m3.step(1 / 60); }
+  ok(Date.now() - t0 < 2500 && m3.fl.length === 96, `3万フレーム分のモデル更新が${Date.now() - t0}ms(描画負荷・メモリは一定)`);
+  // 縮尺
+  let prevK = 0, okMono = true, lastBot = 0, bottomOk = true; const deadFixed = 1.5e10;
+  for (const al of [7.8e9, 5e9, 1e9, 2e8, 1e7, 1e6, 5e4, 3e3, 200, 40, 1]) { const k = S.chooseScale("h", "auto", 1, al, 1000, prevK); if (prevK && k > prevK) okMono = false; prevK = k; const b = Math.min(1000, S.grainsFor(al, deadFixed, k).bot); if (b < lastBot) bottomOk = false; lastBot = b; }
+  ok(okMono && prevK === 1, "自動縮尺は減少に応じて細かくなり(粗くならない)、最終段階では1粒=1個体");
+  ok(bottomOk, "縮尺が細かくなっても下の累計の粒は減らない(消えたように見えない)");
+  ok(S.grainsFor(40, 0, 1).top === 40 && S.grainsFor(0.4, 0, 1e7).top === 1 && S.grainsFor(0, 5, 1).top === 0, "1粒=1個体で正確。生存者がいる間は最低1粒、0なら0粒");
+  const fx = S.FIXED.h.map(k => S.chooseScale("h", "fixed", S.FIXED.h.indexOf(k), 123456789, 1000)); ok(JSON.stringify(fx) === JSON.stringify(S.FIXED.h), "固定縮尺は1粒あたりの個体数が一定(人口によらない)");
+  let errMax = 0; for (let i = 0; i < 500; i++) { const a = rnd() * 8e9 + 1e6, k = S.FIXED.h[i % 3], gt = S.grainsFor(a, 0, k).top; if (a >= k * .5) errMax = Math.max(errMax, Math.abs(gt * k - a) / k); } // 最低1粒の規則を除く
+  ok(errMax <= .5 + 1e-9, "粒数×縮尺は実数と1/2粒以内で一致(縮尺は表現のみ。実数は別に持つ)");
+  ok(S.fmtShort(7.8e9) === "78.0億" && S.fmtShort(123456) === "12万" && S.fmtShort(3292) === "3,292" && S.fmtScale(5e7) === "5000万" && S.fmtScale(2.5e8) === "2.5億", "省略表記: 78.0億 / 12万 / 3,292、縮尺: 5000万 / 2.5億");
+}
+
 console.log(fail ? `\n失敗 ${fail} 件` : "\nすべて成功");
 process.exit(fail ? 1 : 0);
