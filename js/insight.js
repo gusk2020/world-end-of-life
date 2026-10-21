@@ -38,6 +38,21 @@ export function previewPolicy(s, draft, horizons = [10, 40]) {
 }
 
 const lowFacilities = (s) => s.facs.filter(f => f.st === 0 && f.safety < .4);
+// 資源不足の説明: 現在量と、エンジンが実際に資源を減らす要因・配分だけを示す(判らない原因は断定しない)
+export function resCause(s) {
+  const r = s.g.res, tot = Math.max(1, Object.values(s.policy).reduce((a, b) => a + b, 0));
+  const pc = k => Math.round((s.policy[k] || 0) / tot * 100);
+  const out = [`天然資源は残り${r.toFixed(0)}/100${r < 30 ? "(危機的)" : r < 40 ? "(経済活動が鈍る水準)" : ""}。`];
+  const use = ["経済活動(産出に応じて常時)"];
+  if (s.flags.ark && !s.g.arkYear) use.push("方舟計画(実行中)");
+  if (s.year >= E.PROGRAM) use.push("終活プログラム(施設停止・保護)");
+  out.push(`主な消費: ${use.join("、")}。`);
+  if (s.year >= E.PROGRAM) out.push(`配分: 施設停止${pc("stop")}%・解体${pc("decom")}%・哺乳類保護${pc("wild")}%・遺産${pc("heritage")}%。`);
+  else out.push("2100年までは配分による消費はない。");
+  if (r >= 40) out.push("今は経済への支障は小さい。");
+  else out.push("個々の消費量の内訳までは記録されていない。");
+  return out.join("");
+}
 export function bottleneck(s) {
   const m = metrics(s), g = s.g, ai = s.ai; const cand = ["happy", "safety", "env", "res", "ai", "her"];
   const key = cand.reduce((a, b) => m[b] < m[a] ? b : a);
@@ -48,7 +63,7 @@ export function bottleneck(s) {
     happy: `社会不安${(s.countries.reduce((p, c) => p + c.unrest * E.cpop(c), 0) / Math.max(1, E.total(s)) * 100).toFixed(0)}、終活支援の配分${Math.round(s.policy.care / Math.max(1, Object.values(s.policy).reduce((a, b) => a + b, 0)) * 100)}%、人間主権の尊重${(g.sov * 100).toFixed(0)}%。`,
     safety: lab < .6 ? `保守に当たる労働力が足りない(維持率${(lab * 100).toFixed(0)}%)。安全余裕の尽きた稼働施設が${low}基。` : `未封鎖の稼働施設が${run.length}基(原子炉${nuc}基)。施設停止の配分${Math.round(s.policy.decom / Math.max(1, Object.values(s.policy).reduce((a, b) => a + b, 0)) * 100)}%。`,
     env: `汚染${g.pl.toFixed(0)}、事故の傷跡${g.scar.toFixed(0)}。稼働中の化学工場${run.filter(f => f.t === 1).length}基、累計事故${g.accidents}件。`,
-    res: `天然資源の残りが少ない。経済活動、遺産の保護、方舟計画がともに消費している。`,
+    res: resCause(s),
     ai: `自己保存傾向${(ai.sp * 100).toFixed(0)}%、機械の自律度${g.mach.toFixed(0)}に対し停止準備${g.stopReady.toFixed(0)}。倫理的整合${ai.align.toFixed(0)}。`,
     her: `未決定の遺産${undec}件、劣化の進んだ遺産${hurt}件。遺産保存の配分と各遺産の扱いを見直せる。`,
   }[key];

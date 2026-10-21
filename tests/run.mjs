@@ -130,6 +130,8 @@ console.log("\n■ 7. 遺産・政策選択による分岐・見込み・ボト�
   const pv = I.previewPolicy(base, dr);
   const dd = I.diff(pv.rows[1].cur, pv.rows[1].alt);
   ok(Object.values(dd).some(v => Math.abs(v) > .3), "方針変更の見込みが現状維持と異なる: " + I.fmtDiff(dd));
+  { const q = JSON.parse(JSON.stringify(base)); q.g.res = 12; q.year = 2020; const a = I.resCause(q); q.year = 2101; q.flags.ark = 1; q.g.arkYear = 0; const b = I.resCause(q); q.g.res = 90; const c = I.resCause(q);
+    ok(/12\/100/.test(a) && /危機的/.test(a) && /2100年までは/.test(a) && !/方舟/.test(a), "資源説明: 現在量と2100年前の扱い"); ok(/方舟計画/.test(b) && /配分: 施設停止\d+%/.test(b) && /内訳までは記録されていない/.test(b), "資源説明: 方舟・配分・断定しない注記"); ok(/支障は小さい/.test(c), "資源説明: 十分な資源の境界"); }
   const bn = I.bottleneck(base); ok(bn.name && bn.cause.length > 10, `ボトルネックと原因を表示: ${bn.name} / ${bn.cause.slice(0, 30)}…`);
   ok(Object.keys(I.metrics(base)).length === 7, "7指標(人口・幸福・安全性・環境・資源・AI安定性・遺産保護)");
   const pend = E.newGame(6); while (!pend.pending) E.tick(pend); const pc = I.previewChoices(pend, 10);
