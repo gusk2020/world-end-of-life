@@ -27,7 +27,8 @@ function applyTheme(t) {
   document.querySelectorAll("[data-th]").forEach(b => b.classList.toggle("on", b.dataset.th === t));
   saveSettings(); setSandColor(); if (S) { paintMap(); head(); }
 }
-function newGame(seed) { S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
+function resetEarthUI() { if (!afterMode) return; afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; }
+function newGame(seed) { resetEarthUI(); S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
 const idx = (id) => S.countries.findIndex(c => c.id === id);
 const fmtN = (n) => Math.round(n).toLocaleString("en-US");
 
@@ -53,7 +54,7 @@ function buildMap() {
   svg.addEventListener("pointercancel", e => { pts.delete(e.pointerId); down = null; });
   svg.addEventListener("wheel", e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY); }, { passive: false });
 }
-function clampVB() { vb[2] = Math.min(1000, Math.max(60, vb[2])); vb[3] = vb[2] / 2; vb[0] = Math.max(0, Math.min(1000 - vb[2], vb[0])); vb[1] = Math.max(0, Math.min(500 - vb[3], vb[1])); $("svg").setAttribute("viewBox", vb.join(" ")); if ($("pmarks")) paintMarkers(); }
+function clampVB() { vb[2] = Math.min(1000, Math.max(60, vb[2])); vb[3] = vb[2] / 2; vb[0] = Math.max(0, Math.min(1000 - vb[2], vb[0])); vb[1] = Math.max(0, Math.min(500 - vb[3], vb[1])); $("svg").setAttribute("viewBox", vb.join(" ")); if ($("pmarks")) schedMarks(); }
 function zoom(f, cx, cy) { const r = $("svg").getBoundingClientRect(); const px = vb[0] + (cx - r.left) / r.width * vb[2], py = vb[1] + (cy - r.top) / r.height * vb[3]; const w = vb[2] * f; vb[0] = px - (px - vb[0]) * w / vb[2]; vb[1] = py - (py - vb[1]) * w / vb[2]; vb[2] = w; clampVB(); }
 function colorFor(c) {
   const A = (a) => `rgba(${rgb},${Math.max(.04, Math.min(1, a)).toFixed(2)})`;
@@ -210,6 +211,8 @@ function centroid(id) {
   let best = null; for (const p of pathEls[id] || []) { const b = p.getBBox(); if (!best || b.width * b.height > best.width * best.height) best = b; }
   return (cent[id] = best ? { x: best.x + best.width / 2, y: best.y + best.height / 2, w: best.width } : { x: 0, y: 0, w: 0 });
 }
+let marksQ = false;
+function schedMarks() { if (marksQ) return; marksQ = true; requestAnimationFrame(() => { marksQ = false; paintMarkers(); }); }
 function markScale() { const r = $("svg").getBoundingClientRect(); return r.width ? 20 * vb[2] / r.width : 20; }
 function paintMarkers() {
   const svg = $("svg"); let g = $("pmarks"); if (g) g.remove(); if (tab !== "map" || !S || afterMode) return;
@@ -363,7 +366,7 @@ function logView() {
 }
 
 // ---------- 設定・ヘルプ ----------
-const HELP = `<b>目的</b> あなたは人類最後の管理AI。2100年までは観察して学び、以降は終活を管理する。人口には直接触れず、最後の一人まで幸福と尊厳を守り、人類の消滅と同時に危険施設と機械文明を止める。<br>
+const HELP = `<b>流れ</b> 2020〜2100年は助走期間。世界を観察しながら年代ごとの方針を答え、その答えがあなたの価値観になる。2099年の最後の質問で進行モードを選び、2100年から終活を管理する。<br><b>画面</b> 地図の下にレーダーチャート(7指標)と危険のピクトグラム(緑=安全・黄=注意・赤=危険。形とラベルでも区別)。密度は最小限・標準・詳細から選べる。<br><b>色と世界</b> 青・緑・橙は別々の世界として保存される。切り替えると現在の世界を保存してからその色の世界へ移る。<br><b>終幕のあと</b> 人類のいない地球を観察できる(作品内の仮説モデル。終幕の評価は変わらない)。<br><b>目的</b> あなたは人類最後の管理AI。2100年までは観察して学び、以降は終活を管理する。人口には直接触れず、最後の一人まで幸福と尊厳を守り、人類の消滅と同時に危険施設と機械文明を止める。<br>
 <b>砂時計</b> 上部に人類・AI・大型哺乳類の3つ。上(塗りつぶしの粒)=いま生きている/稼働、下(中空の粒)=累計の死亡/停止。死亡・停止は上から下へ粒が落ち、出生・新造は上へ粒が加わる。タップすると大きく拡大し、粒を一つずつ見られる。縮尺は自動(減るほど細かくなり、最後は1粒=1個体)と固定(1粒の個体数が一定)を切り替えられ、1粒の代表個体数を常に表示する。粒は視覚表現で、実際の数値は縮尺や速度で変わらない。数十億個体を描くのではなく、描く粒数には上限がある。粒の動きは表示専用でゲームの時間とは別に動く。<br>
 <b>速度</b> ⏸は一時停止/再開で、速度とは別。×1は現実1秒=ゲーム内1年。選んだ速度は変えるまで維持され、イベントやセーブ、再読込でも戻らない(ロード直後は一時停止)。<br>
 <b>進行モード(2100年以降)</b> 手動=重要イベントごとに停止。半自動=国家・地域の縮退対応だけ自動。完全自動=原則すべてAIが自動処理。判断には2020〜2100年のあなたの選択傾向(安全・人間の尊厳・自然環境・文明遺産・AI存続・野生動物)を使い、履歴が少ないときは既定の初期方針を併用する。理由と結果は年表と「自動判断」に残り、重要なものは未確認バッジで知らせる。いつでも切り替えられる。<br>
@@ -438,7 +441,7 @@ function sysView() {
   $("tut").onclick = () => tutorial(0); $("intr").onclick = () => intro(0);
   $("ng").onclick = () => { if ($("ng").dataset.arm) { newGame(); intro(0); } else { $("ng").dataset.arm = 1; $("ng").textContent = "本当に破棄して最初から(もう一度押す)"; } };
 }
-function adopt(j, note) { S = E.migrate(j); if (S.mode) settings.mode = S.mode; else S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; mainKey = ""; refresh(true); snapCompact(); modal(); show("map"); if (note) $("ticker").textContent = note; }
+function adopt(j, note) { slotLocked = false; resetEarthUI(); S = E.migrate(j); if (S.mode) settings.mode = S.mode; else S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; mainKey = ""; refresh(true); snapCompact(); modal(); show("map"); if (note) $("ticker").textContent = note; }
 function load(n) { try { const j = JSON.parse(localStorage.getItem(SAVE + n)); if (!j || !j.countries) throw 0; adopt(j); } catch { $("ticker").textContent = "読み込めませんでした"; } }
 
 // ---------- 色別セーブ(青・緑・橙の世界は別々に保存される) ----------
@@ -454,21 +457,23 @@ function askModal(html, buttons) { // buttons: [[label, fn, id]]
   m.hidden = false; b.querySelectorAll("[data-ab]").forEach(x => x.onclick = () => { m.hidden = true; buttons[+x.dataset.ab][1](); });
 }
 function freshWorld() { slotLocked = false; newGame(); if (!settings.introSeen) intro(0); else if (!settings.tutorialDone) tutorial(0); saveActive(); }
+function keepCorrupt(t) { try { const raw = localStorage.getItem(SV.slotKey(t)); if (!raw) return true; localStorage.setItem(SV.slotKey(t) + ".corrupt", raw); return localStorage.getItem(SV.slotKey(t) + ".corrupt") === raw; } catch { return false; } }
 function switchTheme(t) {
   if (!SV.THEMES.includes(t) || t === settings.theme) return;
   if (!saveActive()) { $("ticker").textContent = "⚠ 現在の世界を保存できないため、色を切り替えませんでした。" + saveWarn; if (tab === "sys") sysView(); return; }
   const old = settings.theme, r = SV.read(localStorage, SV.slotKey(t));
-  const back = () => { applyTheme(old); if (tab === "sys") sysView(); };
+  const back = () => { applyTheme(old); slotLocked = false; if (tab === "sys") sysView(); };
+  const decide = !(r.status === "ok" || r.status === "recovered"); if (decide) slotLocked = true; // 決めるまで、移る先の色のスロットを上書きしない
   applyTheme(t);
   if (r.status === "ok" || r.status === "recovered") { adopt(r.state, `${TN[t]}の世界を読み込みました${r.status === "recovered" ? "(直前の保存から復元)" : ""}。一時停止中です。`); if (tab === "sys") sysView(); return; }
-  if (r.status === "corrupt") return askModal(`<h2>${TN[t]}の世界</h2><p class="body">保存データが読めません。データは消していません。</p>`, [["新しい世界を始める(破損データは別名で残す)", () => { try { const raw = localStorage.getItem(SV.slotKey(t)); if (raw) localStorage.setItem(SV.slotKey(t) + ".corrupt", raw); } catch { } freshWorld(); }], ["色を元に戻す", back]]);
+  if (r.status === "corrupt") return askModal(`<h2>${TN[t]}の世界</h2><p class="body">保存データが読めません。データは消していません。</p>`, [["新しい世界を始める(破損データは別名で残す)", () => { if (!keepCorrupt(t)) return askModal("<h2>別名で残せませんでした</h2><p class=\"body\">容量が足りないため、破損データは消さずにそのままにしました。</p>", [["閉じる", () => { }]]); freshWorld(); }], ["色を元に戻す", back]]);
   askModal(`<h2>${TN[t]}の世界はまだありません</h2><p class="body">色ごとに別の世界が保存されます。${TN[old]}の世界は保存してあります。${TN[t]}の新しい世界を始めますか?</p>`, [[`${TN[t]}の新しい世界を始める`, () => freshWorld()], ["色を元に戻す", back]]);
 }
 function boot() {
   const r = SV.read(localStorage, SV.slotKey(settings.theme)), t = settings.theme;
   if (r.status === "ok" || r.status === "recovered") { adopt(r.state, r.status === "recovered" ? "直前の保存から復元しました。" : `${TN[t]}の世界を続きから開きました。一時停止中です。`); return; }
   newGame(); slotLocked = true; // 決めるまで、何も上書きしない
-  if (r.status === "corrupt") return askModal(`<h2>${TN[t]}の世界</h2><p class="body">保存データが読めません。データは消していません。</p>`, [["新しい世界を始める(破損データは別名で残す)", () => { try { const raw = localStorage.getItem(SV.slotKey(t)); if (raw) localStorage.setItem(SV.slotKey(t) + ".corrupt", raw); } catch { } freshWorld(); }]]);
+  if (r.status === "corrupt") return askModal(`<h2>${TN[t]}の世界</h2><p class="body">保存データが読めません。データは消していません。</p>`, [["新しい世界を始める(破損データは別名で残す)", () => { if (!keepCorrupt(t)) return askModal("<h2>別名で残せませんでした</h2><p class=\"body\">容量が足りないため、破損データは消さずにそのままにしました。</p>", [["閉じる", () => { }]]); freshWorld(); }]]);
   const leg = SV.legacyList(localStorage);
   if (!leg.length) return freshWorld();
   askModal(`<h2>以前のセーブがあります</h2><p class="body">セーブは色ごとの世界に変わりました。以前のセーブは消さず、${TN[t]}の世界へ<b>コピー</b>して続けられます(元のデータは残ります)。</p>` + leg.map(l => `<div class="small">${l.name}: ${l.sum.year}年 / ${fmtN(l.sum.pop)}人</div>`).join(""),
@@ -536,11 +541,11 @@ function choose(id) {
 
 
 // ---------- 人類消滅後の地球の観察(終幕の評価とは別。表示は仮説モデルに基づく) ----------
-let afterMode = false, afterSpeed = 0, afterAcc = 0, afterKey = "";
+let lastAfterSave = 0, afterMode = false, afterSpeed = 0, afterAcc = 0, afterKey = "";
 const AFTER_SPEEDS = [[0, "⏸"], [100, "100年/秒"], [500, "500年/秒"], [2000, "2000年/秒"]];
 const LAYERS_NORMAL = '<option value="pop">人口</option><option value="happy">幸福度</option><option value="unrest">社会不安</option><option value="fac">稼働施設</option>', LAYERS_AFTER = '<option value="a_veg">植生</option><option value="a_city">都市の残存</option><option value="a_pl">汚染</option>';
 function startEarth() {
-  if (!S.ended) return; if (!S.after) S.after = After.startAfter(S);
+  if (!S.ended) return; if (!S.after) { try { S.after = After.startAfter(S); } catch { $("ticker").textContent = "地球の観察を始められませんでした"; return; } } lastAfterSave = S.after.t;
   afterMode = true; afterSpeed = 100; afterAcc = 0; $("layer").innerHTML = LAYERS_AFTER; $("mainstat").hidden = true; $("afterbox").hidden = false; $("modal").hidden = true; show("map"); afterRender(true); paintMap(); saveActive();
 }
 function stopEarth() { afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; mainStat(true); paintMap(); saveActive(); }
@@ -567,7 +572,7 @@ function afterFrame(dt) {
   if (!afterMode || !S.after || !afterSpeed || !$("modal").hidden) return;
   afterAcc += afterSpeed * dt; let n = 0; while (afterAcc >= After.STEP && S.after.t < S.after.horizon && n < 400) { afterAcc -= After.STEP; After.stepAfter(S.after); n++; }
   if (S.after.t >= S.after.horizon) { afterAcc = 0; afterSpeed = 0; }
-  if (n) { afterRender(true); paintMap(); if (S.after.t % 500 === 0) saveActive(); }
+  if (n) { afterRender(true); paintMap(); if (S.after.t - lastAfterSave >= 500 || S.after.t >= S.after.horizon) { lastAfterSave = S.after.t; saveActive(); } }
 }
 // ---------- 進行(速度と一時停止は別。選んだ速度は変えるまで維持) ----------
 function setSpeed(i) { speedIdx = i; settings.speed = i; saveSettings(); paused = false; head(); }

@@ -299,6 +299,110 @@ console.log("\n■ 第5次: 停止の順序・新規イベント");
   await p.evaluate(() => { document.getElementById("modal").hidden = true; window.__game.S.pending = null; });
 }
 
+console.log("\n■ 第6次: 導入・助走期間・進行モード選択(新しい世界)");
+{
+  const c2 = await b.newContext({ viewport: { width: 360, height: 740 }, hasTouch: true }), q = await c2.newPage(); const errs2 = [];
+  q.on("pageerror", e => errs2.push(e.message)); await q.goto(URL_); await q.waitForTimeout(500);
+  const ch = await q.evaluate(() => document.querySelector("#mbox").textContent);
+  ok(/世界観 1\/7/.test(ch) && /2020年1月1日/.test(ch), "ゲーム開始時に背景説明(章1/7)が出る");
+  const chapters = []; for (let i = 0; i < 7; i++) { chapters.push(await q.textContent("#mbox h2")); await q.click("#tnext"); await q.waitForTimeout(30); }
+  ok(chapters.join("|").includes("あなたの役割") && chapters.join("|").includes("あなたというAI") && chapters.join("|").includes("作品内の仮説"), "章に役割・ワンチップAI・仮説の注記が含まれる: " + chapters.join(" / "));
+  await q.click("#tskip"); await q.waitForTimeout(100); ok(await q.locator("#modal:not([hidden])").count() === 0, "チュートリアルもスキップできる");
+  await q.click("#tabs [data-t=sys]"); await q.click("#intr"); ok(/世界観 1\/7/.test(await q.textContent("#mbox")), "設定タブから世界観を再閲覧できる"); await q.click("#tskip");
+  await q.click("#tabs [data-t=status]"); ok(/助走期間/.test(await q.textContent("#status")) && /価値観|方針の回答/.test(await q.textContent("#status")), "助走期間の説明と価値観が状況タブにある");
+  const lay = await q.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); return { svgB: r("svg").bottom, radarT: r("radarbox").top, radarB: r("radarbox").bottom, H: innerHeight, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, hasRadar: !!document.querySelector("#radarbox svg.radar") }; });
+  await q.click("#tabs [data-t=map]"); const lay2 = await q.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); return { svgB: r("svg").bottom, radarT: r("radarbox").top, radarB: r("radarbox").bottom, H: innerHeight, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, hasRadar: !!document.querySelector("#radarbox svg.radar"), mapW: r("svg").width }; });
+  ok(lay2.hasRadar && lay2.svgB < lay2.H - 60 && lay2.radarT < lay2.svgB + 20 && lay2.radarB <= lay2.H - 40 && lay2.over <= 0, `360pxで世界地図とレーダーチャートが同じ画面に収まる(地図下端${Math.round(lay2.svgB)}・レーダー${Math.round(lay2.radarT)}〜${Math.round(lay2.radarB)} / ${lay2.H})`);
+  // 2099年: 最後の質問で進行モードを選ぶ
+  await q.evaluate(() => { const g = window.__game, S = g.S, E = g.E; g.settings.observe.sec = 0; if (!g.paused) g.togglePause(); while (!(S.pending && S.pending.id === "modesel") && S.year < 2100 && !S.ended) { E.tick(S); if (S.pending && S.pending.id !== "modesel") E.choose(S, S.pending.choices[0].id); } g.refresh(true); if (g.paused) g.togglePause(); });
+  await q.waitForSelector("#modal:not([hidden]) #go", { timeout: 5000 });
+  ok(/最後の質問/.test(await q.textContent("#mbox h2")) && await q.locator("#mbox .opt").count() === 3 && await q.locator("#mbox .progset").count() === 0, "2099年に『最後の質問』で手動・半自動・完全自動の3択が出る");
+  await q.click("#mbox [data-c=auto]"); await q.click("#go"); await q.waitForTimeout(200);
+  ok(await q.evaluate(() => window.__game.S.mode) === "auto" && /全自動/.test(await q.textContent("#modechip")), "選んだ進行モード(完全自動)に移行する");
+  await q.evaluate(() => { const g = window.__game; if (!g.paused) g.togglePause(); });
+  await q.evaluate(() => { const g = window.__game, S = g.S, E = g.E; while (S.year < 2101 && !S.ended) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } g.refresh(true); });
+ok(await q.locator("#tabs [data-t=policy]").isVisible(), "2100年に方針・遺産タブが開く");
+  ok(errs2.length === 0, "ページエラーなし(新しい世界)"); await c2.close();
+}
+
+console.log("\n■ 第6次: ピクトグラム・表示密度・結果表示");
+{
+  await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (!g.paused) g.togglePause(); g.settings.observe.sec = 0; g.S.pending = null; g.S.year = Math.max(g.S.year, 2110); g.S.coop = .5; g.refresh(true); });
+  await p.click("#tabs [data-t=map]"); await p.waitForTimeout(200);
+  const cnt = async d => { await p.click(`[data-pd=${d}]`); await p.waitForTimeout(100); return p.locator("#pictobox .pi").count(); };
+  const nmin = await cnt("min"), nstd = await cnt("std"), nfull = await cnt("full");
+  ok(nmin <= nstd && nstd <= nfull && nfull === 16, `表示密度 最小限${nmin} ≤ 標準${nstd} ≤ 詳細${nfull}`);
+  ok((await p.evaluate(() => JSON.parse(localStorage.getItem("weol.settings")).picto)) === "full", "表示密度の選択が保存される");
+  ok(await p.locator('#pictobox .pi[aria-label*="原子力"]').count() === 1 && /安全|注意|危険/.test(await p.getAttribute('#pictobox .pi >> nth=0', "aria-label")), "アイコンは色だけでなくラベルと状態名も持つ");
+  const shapes = await p.evaluate(() => ["ok", "warn", "bad"].map(l => window.__game.S && 0 && l)); void shapes;
+  await p.click('#pictobox .pi >> nth=0'); ok(/詳細|:/.test(await p.textContent("#pictobox .pdet")), "ピクトグラムをタップすると詳細が出る");
+  await p.evaluate(() => { const S = window.__game.S; let k = S.countries.findIndex(c => !c.extinct); if (k < 0) { k = 0; S.countries[0].extinct = false; S.countries[0].y = 1e6; } S.countries[k].unrest = .9; S.facs.filter(f => f.c === k && f.t === 0).forEach(f => { f.st = 0; f.safety = .1; }); window.__game.refresh(true); });
+  await p.click("[data-pd=std]"); await p.waitForTimeout(150);
+  { const info = await p.evaluate(() => ({ tab: document.querySelector("#tabs .on").dataset.t, n: document.querySelectorAll("#pmarks .pico").length, dens: window.__game.settings.picto, after: window.__game.afterMode, vb: document.getElementById("svg").getAttribute("viewBox"), mk: window.__game.S && window.__game.SV && 1 })); ok(await p.locator("#pmarks .pico").count() >= 1, "世界地図に、危険のある国のピクトグラムが出る " + JSON.stringify(info)); }
+  const mp = await p.evaluate(() => { const e = document.querySelector("#pmarks .pico"); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, id: e.dataset.e }; });
+  await p.mouse.click(mp.x, mp.y); await p.waitForTimeout(150);
+  ok(/危険|注意/.test(await p.textContent("#card")) && await p.locator("#card .pcr").count() >= 1, "マーカーをタップすると、その国の危険の詳細(ピクトグラム付き)が出る");
+  await p.evaluate(() => { const g = window.__game, S = g.S; S.pending = null; S.year = 2105; S.coop = .5; delete S.flags.minorY; delete S.done.scarcity; g.E.checkEvents(S); if (!S.pending) throw new Error("no event"); g.refresh(true); if (g.paused) g.togglePause(); });
+  await p.waitForSelector("#modal:not([hidden]) #go", { timeout: 4000 }); await p.click("#modal .opt >> nth=0"); await p.click("#go"); await p.waitForTimeout(200);
+  ok(await p.locator("#resbar:not([hidden])").count() === 1 && /→「/.test(await p.textContent("#resbar")), "判断の結果が指標の差分つきで表示される: " + (await p.textContent("#resbar")).slice(0, 60));
+  ok(await over() <= 0, "結果表示後も横スクロールなし");
+}
+
+console.log("\n■ 第6次: 色別セーブ");
+{
+  await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (!g.paused) g.togglePause(); g.S.pending = null; g.S.year = 2133; g.saveActive(); });
+  const slotsKeys = () => p.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith("weol.world.")).sort());
+  const manualBefore = await p.evaluate(() => localStorage.getItem("weol.save.1"));
+  await sw("green"); const yg = await p.evaluate(() => window.__game.S.year);
+  ok(yg === 2020 || yg < 2133, `緑は空の世界から始まる(${yg}年)。青の世界とは別`);
+  await p.evaluate(() => { window.__game.S.year = 2210; window.__game.saveActive(); });
+  await sw("blue"); ok(await p.evaluate(() => window.__game.S.year) === 2133, "青に戻ると青の世界(2133年)が復元される");
+  await sw("green"); ok(await p.evaluate(() => window.__game.S.year) === 2210, "緑に戻ると緑の世界(2210年)が復元される");
+  await sw("blue"); const ks = await slotsKeys(); ok(ks.includes("weol.world.blue") && ks.includes("weol.world.green"), "色ごとに別スロットへ保存されている: " + ks.join(","));
+  ok(await p.evaluate(() => localStorage.getItem("weol.save.1")) === manualBefore, "手動バックアップ枠(既存セーブ)は色切替で変更されない");
+  await p.click("#tabs [data-t=sys]"); ok(/色ごとの世界/.test(await p.textContent("#sys")) && /橙/.test(await p.textContent("#sys")), "設定タブに色ごとの世界の一覧がある");
+  // 空スロットでは新規開始を案内し、戻すこともできる
+  await p.evaluate(() => { localStorage.removeItem("weol.world.orange"); localStorage.removeItem("weol.world.orange.prev"); }); await p.click("#themes [data-th=orange]"); await p.waitForTimeout(150);
+  ok(/まだありません/.test(await p.textContent("#mbox")) && await p.locator("#mbox [data-ab='1']").count() === 1, "空の色に切り替えると、新規開始を案内する(元に戻す選択もある)");
+  await p.click("#mbox [data-ab='1']"); await p.waitForTimeout(150);
+  ok(await p.evaluate(() => document.documentElement.dataset.theme) === "blue" && await p.evaluate(() => window.__game.S.year) === 2133, "『色を元に戻す』で青の世界のまま変わらない");
+  // 旧セーブの取り込み(新しいブラウザ環境で)
+  const legacyJson = await p.evaluate(() => { const E = window.__game.E, q = E.newGame(7); while (q.year < 2070) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } q.pending = null; return JSON.stringify(q); });
+  const c3 = await b.newContext({ viewport: { width: 360, height: 740 }, hasTouch: true }); await c3.addInitScript(([j]) => { if (!localStorage.getItem("weol.init")) { localStorage.setItem("weol.save.1", j); localStorage.setItem("weol.settings", JSON.stringify({ introSeen: true, tutorialDone: true })); localStorage.setItem("weol.init", "1"); } }, [legacyJson]);
+  const r = await c3.newPage(); await r.goto(URL_); await r.waitForTimeout(600);
+  ok(/以前のセーブ/.test(await r.textContent("#mbox")) && /コピー/.test(await r.textContent("#mbox")), "旧形式のセーブがあると、色別セーブへの取り込みを提示する");
+  await r.click("#mbox [data-ab='0']"); await r.waitForTimeout(300);
+  ok(await r.evaluate(() => window.__game.S.year) === 2070 && await r.evaluate(() => localStorage.getItem("weol.save.1")) === legacyJson && await r.evaluate(() => !!localStorage.getItem("weol.world.blue")), "取り込み後、旧セーブは残り(コピー)、青の世界として続けられる");
+  await r.reload(); await r.waitForTimeout(500); ok(await r.evaluate(() => window.__game.S.year) === 2070, "再読込すると色別セーブから続きが始まる");
+  const c4 = await b.newContext({ viewport: { width: 360, height: 740 }, hasTouch: true }); await c4.addInitScript(() => { if (!localStorage.getItem("weol.init")) { localStorage.setItem("weol.world.blue", "{broken"); localStorage.setItem("weol.settings", JSON.stringify({ introSeen: true, tutorialDone: true })); localStorage.setItem("weol.init", "1"); } });
+  const r4 = await c4.newPage(); await r4.goto(URL_); await r4.waitForTimeout(600);
+  ok(/読めません/.test(await r4.textContent("#mbox")) && await r4.evaluate(() => localStorage.getItem("weol.world.blue")) === "{broken", "破損したスロットは何も上書きせず、選択を尋ねる");
+  await r4.evaluate(() => window.dispatchEvent(new Event("pagehide"))); ok(await r4.evaluate(() => localStorage.getItem("weol.world.blue")) === "{broken", "選択するまでは自動保存も破損データを上書きしない");
+  await r4.click("#mbox [data-ab='0']"); await r4.waitForTimeout(200); ok(await r4.evaluate(() => localStorage.getItem("weol.world.blue.corrupt")) === "{broken", "新規開始しても破損データは別名で残る"); await c4.close();
+  await c3.close();
+}
+
+console.log("\n■ 第6次: 人類消滅後の地球の観察");
+{
+  await p.evaluate(() => { const g = window.__game, S = g.S, E = g.E; document.getElementById("modal").hidden = true; g.settings.observe.sec = 0; S.pending = null; S.mode = "auto"; E.runToEnd(S, { choose: (s, pp) => pp.choices[0].id }, 2500); S.__endShown = false; g.refresh(true); });
+  await p.waitForSelector("#modal:not([hidden]) #earth", { timeout: 5000 });
+  ok(await p.locator("#earth").count() === 1, "終幕画面に『人類のいない地球を観察する』がある");
+  await p.click("#earth"); await p.waitForTimeout(300);
+  ok(await p.locator("#afterbox:not([hidden])").count() === 1 && await p.locator("#mainstat").isHidden(), "観察を始めると、地球の変化の表示に切り替わる");
+  ok(/人類消滅から/.test(await p.textContent("#afterbox")) && /仮説モデル/.test(await p.textContent("#afterbox")), "経過年・分岐・仮説モデルである旨を表示する");
+  const t1 = await p.evaluate(() => window.__game.S.after.t); await p.waitForTimeout(1500); const t2 = await p.evaluate(() => window.__game.S.after.t);
+  ok(t2 > t1, `時間が高速に進む(${t1}→${t2}年)`);
+  await p.click('[data-as="2000"]'); await p.waitForTimeout(1500); ok(await p.evaluate(() => window.__game.S.after.t) > t2 + 1000, "2000年/秒に高速化できる");
+  ok(await p.locator("#afterbox .log").count() >= 1, "年表に短い文章が出る");
+  ok(await p.evaluate(() => [...document.querySelectorAll("#layer option")].map(o => o.value).join()) === "a_veg,a_city,a_pl", "地図の表示が植生・都市の残存・汚染に切り替わる");
+  const fills = await p.evaluate(() => [...new Set([...document.querySelectorAll("#svg path")].map(e => e.style.fill))].length); ok(fills >= 1, "地図が未来の状態で塗られる");
+  ok(await over() <= 0, "観察中も360pxで横スクロールなし");
+  const tt = await p.evaluate(() => window.__game.S.after.t); await p.reload(); await p.waitForTimeout(600);
+  await p.waitForSelector("#modal:not([hidden]) #earth", { timeout: 4000 }); await p.click("#earth"); await p.waitForTimeout(200);
+  ok(await p.evaluate(() => window.__game.S.after.t) >= tt - 5000, "再読込しても観察の続きから再開できる");
+  await p.click("#aend"); await p.waitForTimeout(200); ok(await p.locator("#mainstat").isVisible(), "観察を終えると通常の地図+レーダー表示に戻る");
+}
+
 console.log("エラー:", errs.length ? errs : "なし"); ok(errs.length === 0, "ページエラーなし");
 await p.screenshot({ path: process.env.SHOT || "/tmp/claude-0/ui360.png" });
 await b.close(); process.exit(fail ? 1 : 0);

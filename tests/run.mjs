@@ -431,5 +431,57 @@ console.log("\n■ 18. 助走期間(2020〜2100)の価値観形成・最後の�
   const ch = P.resultChips({ pop: 0, happy: 3.2, safety: -5, env: 0, res: -3, ai: 0, her: .2 }); ok(ch.length === 3 && ch.find(c => c.k === "nuc").v === -5, "判断結果は実際の指標差分から作る(存在しない影響値は出さない)");
 }
 
+console.log("\n■ 19. 色別セーブ(独立性・旧セーブの安全な取り込み・破損/容量不足)");
+{
+  const SV = await import("../js/saves.js");
+  class Store { constructor(q = Infinity) { this.m = new Map(); this.q = q; } getItem(k) { return this.m.has(k) ? this.m.get(k) : null; } removeItem(k) { this.m.delete(k); }
+    setItem(k, v) { let n = 0; for (const [kk, vv] of this.m) if (kk !== k) n += vv.length; if (n + v.length > this.q) throw new Error("QuotaExceededError"); this.m.set(k, String(v)); } }
+  const mk = (seed, y) => { const q = E.newGame(seed); while (q.year < y) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } q.pending = null; return q; };
+  const st = new Store(), blue = mk(1, 2040), green = mk(2, 2060);
+  ok(SV.write(st, SV.slotKey("blue"), blue).ok && SV.write(st, SV.slotKey("green"), green).ok, "青と緑の世界をそれぞれのスロットに保存できる");
+  const rb = SV.read(st, SV.slotKey("blue")).state, rg = SV.read(st, SV.slotKey("green")).state;
+  ok(rb.year === 2040 && rg.year === 2060 && E.total(rb) !== E.total(rg) && rb.countries[0].gdp !== rg.countries[0].gdp, "色ごとに時間・人口・資源が混ざらない(独立)");
+  ok(SV.read(st, SV.slotKey("orange")).status === "empty" && SV.overview(st).find(o => o.theme === "orange").status === "empty", "未保存の色は空きとして扱う(新規開始を案内)");
+  SV.write(st, SV.slotKey("blue"), mk(1, 2050)); ok(SV.read(st, SV.slotKey("blue")).state.year === 2050 && SV.read(st, SV.slotKey("green")).state.year === 2060, "ある色を保存し直しても他の色は変わらない");
+  // 破損: 直前の保存から復元。復元できなければ corrupt のまま(消さない)
+  st.setItem(SV.slotKey("blue"), "{broken"); const rc = SV.read(st, SV.slotKey("blue")); ok(rc.status === "recovered" && rc.state.year === 2040, "破損したスロットは直前の保存から復元する");
+  st.setItem(SV.slotKey("blue") + ".prev", "xx"); ok(SV.read(st, SV.slotKey("blue")).status === "corrupt" && st.getItem(SV.slotKey("blue")) === "{broken", "復元できない破損は corrupt と報告し、データは消さない");
+  // 旧セーブ: 空の色スロットへコピーのみ。元は残り、使用中の色は上書きしない
+  const lg = new Store(); lg.setItem("weol.save.1", JSON.stringify(mk(3, 2080))); lg.setItem("weol.save.auto", JSON.stringify(mk(4, 2030)));
+  const before = lg.getItem("weol.save.1"); ok(SV.legacyList(lg).length === 2, "旧形式のセーブを検出して一覧にできる");
+  const imp = SV.importLegacy(lg, "weol.save.1", "orange"); ok(imp.ok && SV.read(lg, SV.slotKey("orange")).state.year === 2080 && lg.getItem("weol.save.1") === before, "旧セーブを橙へ取り込んでも元のデータは残る(コピー)");
+  const imp2 = SV.importLegacy(lg, "weol.save.auto", "orange"); ok(!imp2.ok && imp2.reason === "occupied" && SV.read(lg, SV.slotKey("orange")).state.year === 2080, "既にある世界は旧セーブで上書きされない");
+  // v1形式
+  const v1 = E.newGame(5); delete v1.v; delete v1.sites; const lg1 = new Store(); lg1.setItem("weol.save.2", JSON.stringify(v1)); ok(SV.importLegacy(lg1, "weol.save.2", "blue").ok && SV.read(lg1, SV.slotKey("blue")).state.sites, "v1形式の旧セーブも読み込み時に補われる");
+  // 容量不足: 失敗しても元のデータは残る
+  const size = JSON.stringify(blue).length, tiny = new Store(size * 1.4); SV.write(tiny, SV.slotKey("blue"), blue);
+  const big = mk(1, 2060), w = SV.write(tiny, SV.slotKey("blue"), big); const keep = SV.read(tiny, SV.slotKey("blue"));
+  ok(w.ok ? keep.state.year === 2060 : keep.status === "ok" && keep.state.year === 2040, `容量が足りないときも保存は破損せず、成功か元のデータ維持のどちらか(${w.ok ? "退避を捨てて成功" : "失敗・元を維持"})`);
+  const none = new Store(10), wf = SV.write(none, SV.slotKey("blue"), blue); ok(!wf.ok && none.getItem(SV.slotKey("blue")) === null, "全く入らない場合は失敗を報告し、何も壊さない");
+  const bad = { getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); }, removeItem() { } }; ok(SV.read(bad, "x").status === "corrupt" && !SV.write(bad, "x", blue).ok, "localStorageが使えなくても例外で止まらない");
+}
+console.log("\n■ 20. 人類消滅後の地球(分岐・整合性・性能)");
+{
+  const A = await import("../js/after.js");
+  const fin = (name, seed = 2) => results[name] && results[name].ended ? results[name] : null;
+  const want = { ideal: ["dusk", "C"], machine: ["paradise", "B"], ark: ["ark", "C"], reboot: ["reboot", "D"], keeper: ["keeper", "D"], tyrant: ["copy", "B"], neglect: ["ash", "A"], perfect: ["perfect", "A"], abandon: ["lonely", "A"], tyrant2: ["managed", "C"], runaway: ["runaway", "B"] };
+  const seen = {};
+  for (const [name, [end, br]] of Object.entries(want)) { const s = play(name); if (s.ended.id !== end) continue; const a = A.startAfter(s); seen[br] = (seen[br] || 0) + 1;
+    ok(a.branch === br && A.branchOf(s).branch === br, `${name}(${end}) → ${br}:${A.BRANCH[br]}`); }
+  ok(["A", "B", "C", "D"].every(k => seen[k]), "自然・AI・後継存在・混合の4分岐すべてに、通常戦略から到達する");
+  const s1 = play("ideal"), snap = JSON.stringify(s1.ended), a1 = A.startAfter(s1), a2 = A.startAfter(s1); A.advanceTo(a1, 5000); A.advanceTo(a2, 5000);
+  ok(JSON.stringify(a1) === JSON.stringify(a2), "同じ終幕状態から同じ未来になる(乱数なし・再現可能)"); ok(JSON.stringify(s1.ended) === snap, "未来観察は終幕の評価(結末)を変えない");
+  const m0 = A.metricsAfter(A.startAfter(s1)), m1 = A.metricsAfter(a1); ok(m1.veg > m0.veg && m1.city < m0.city && m1.pl <= m0.pl + 1, `時間とともに都市は衰え(${m0.city.toFixed(0)}→${m1.city.toFixed(0)})、植生は回復する(${m0.veg.toFixed(0)}→${m1.veg.toFixed(0)})`);
+  const sn = play("neglect"), an = A.startAfter(sn), ai = A.startAfter(s1); A.advanceTo(an, 300); A.advanceTo(ai, 300); ok(A.metricsAfter(an).veg < A.metricsAfter(ai).veg && A.metricsAfter(an).pl > A.metricsAfter(ai).pl, "汚染と事故を残した終幕は、植生の回復が遅く汚染が長く残る");
+  const sm = play("machine"), am = A.startAfter(sm); A.advanceTo(am, 1000); const ap = A.startAfter(s1); A.advanceTo(ap, 1000); ok(A.metricsAfter(am).city > A.metricsAfter(ap).city && A.metricsAfter(am).mach > 1, "機械が残る未来は、都市と遺産が長く維持され、機械が活動を続ける");
+  const sa = play("ark"), aa = A.startAfter(sa); A.advanceTo(aa, 1000); ok(aa.human > 1000 && aa.log.some(l => /復興人類/.test(l.text)), "方舟の生存者が復興人類として戻る");
+  const sk = play("tyrant"), ak = A.startAfter(sk); A.advanceTo(ak, 500); ok(ak.copy && ak.log.some(l => /目覚め/.test(l.text)) && ak.mach > .2, "隠されたコアは休眠の後に目覚める(停止に失敗したAIは観察を続ける)");
+  ok(/外部視点|記録の再生/.test(A.endText(a1)) && /あなたは地球を見守り続けている/.test(A.endText(am)), "正常に停止したAIは外部視点の記録として、存続したAIは自ら観測する");
+  const mam = (() => { const s = play("ideal"); s.mam.forEach(m => { m.n = 0; }); return A.startAfter(s); })(); A.advanceTo(mam, 3000); ok(mam.mamGap && mam.log.some(l => /大型哺乳類の空白/.test(l.text)), "大型哺乳類が不在だと、鳥類・爬虫類が空白を埋める経過が年表に出る");
+  const t0 = Date.now(), long = A.startAfter(s1); A.advanceTo(long, 5000); A.extend(long); A.extend(long); A.extend(long); A.advanceTo(long, 20000); const dt = Date.now() - t0;
+  ok(long.t === 20000 && dt < 1500 && JSON.stringify(long).length < 40000, `2万年の観察も軽い(${dt}ms・状態 ${(JSON.stringify(long).length / 1024).toFixed(0)}KB)`);
+  ok(long.t === 20000 && A.stepAfter(long) === false, "上限に達したら進まない");
+}
+
 console.log(fail ? `\n失敗 ${fail} 件` : "\nすべて成功");
 process.exit(fail ? 1 : 0);

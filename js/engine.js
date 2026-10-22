@@ -89,7 +89,7 @@ export function migrate(s) { // 旧セーブ(v1)の読み込み
   if (g.aiActive === undefined) aiInit(s);
   if (!s.mam) s.mam = initMammals();
   if (!s.series) s.series = { h: [], a: [], m: [] };
-  if (!s.mode) s.mode = "manual"; if (!s.wildStance) s.wildStance = "balanced"; if (!s.decomOrder) s.decomOrder = "hazard"; if (!s.autoLog) s.autoLog = [];
+  if (!s.mode) s.mode = "manual"; if (!s.wildStance) s.wildStance = "balanced"; if (!s.decomOrder) s.decomOrder = "hazard"; if (s.year >= PROGRAM) for (const ev of EVENTS) if (ev.prelude && s.done[ev.id] === undefined) s.done[ev.id] = s.year; // 終活期に入った古いセーブに助走期間の質問を出さない if (!s.autoLog) s.autoLog = [];
   for (const [k, v] of Object.entries({ astro: 0, lull: 0, peak: 0, surge: 0, coreFail: 0, aiFailed: 0, mamWildExt: null, wAcc: 0, wW: 0, ecoSum: 0, ecoMean: 0, rate: {} })) if (g[k] === undefined) g[k] = v;
   if (!g.popHist) g.popHist = []; if (!g.popEv) g.popEv = { flat: 0, grow: 0 };
   if (s.policy.wild === undefined) s.policy.wild = 0;

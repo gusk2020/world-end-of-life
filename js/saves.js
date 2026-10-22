@@ -7,6 +7,7 @@ export const slotKey = (t) => "weol.world." + t;
 export const LEGACY_KEYS = ["weol.save.1", "weol.save.2", "weol.save.3", "weol.save.auto"];
 export const legacyName = (k) => (k.endsWith("auto") ? "旧・自動セーブ" : "旧・枠" + k.slice(-1));
 
+const validJson = (x) => { try { const j = JSON.parse(x); return !!j && Array.isArray(j.countries); } catch { return false; } };
 export function summary(j) { return j && j.countries ? { year: j.year, pop: Math.round(E.total(j)), ended: !!j.ended } : null; }
 // 読み込み: empty / ok / recovered(直前の保存から復元) / corrupt
 export function read(store, key) {
@@ -19,9 +20,9 @@ export function read(store, key) {
 // 書き込み: 直前の内容を .prev に退避してから書き、読み戻して検証する。失敗したら元のデータはそのまま
 export function write(store, key, state) {
   let str; try { str = JSON.stringify(state); } catch { return { ok: false, err: "serialize" }; }
-  const put = () => { const old = store.getItem(key); if (old !== null) { try { store.setItem(key + ".prev", old); } catch { try { store.removeItem(key + ".prev"); } catch { } } } store.setItem(key, str); return store.getItem(key) === str; };
+  const put = () => { const old = store.getItem(key); if (old !== null && validJson(old)) { try { store.setItem(key + ".prev", old); } catch { try { store.removeItem(key + ".prev"); } catch { } } } store.setItem(key, str); return store.getItem(key) === str; };
   try { if (put()) return { ok: true }; } catch { }
-  try { store.removeItem(key + ".prev"); store.setItem(key, str); if (store.getItem(key) === str) return { ok: true, noPrev: true }; } catch { } // 容量不足: 退避を捨てて再試行(失敗しても元のデータは残る)
+  try { const cur = store.getItem(key); if (cur === null || validJson(cur)) store.removeItem(key + ".prev"); store.setItem(key, str); if (store.getItem(key) === str) return { ok: true, noPrev: true }; } catch { } // 容量不足: 退避を捨てて再試行(失敗しても元のデータは残る)
   return { ok: false, err: "quota" };
 }
 export function legacyList(store) {

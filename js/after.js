@@ -5,16 +5,16 @@ import { GROUPS } from "./life.js";
 
 export const STEP = 25, HORIZON0 = 5000, HORIZON_MAX = 20000;
 export const BRANCH = { A: "自然への回帰", B: "AIによる地球管理", C: "別の存在への継承", D: "混合・予想外の未来" };
-const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
-const SYSTEM = "上位管理システム", ALIEN = "異星人";
+const clamp = (x, a, b) => x !== x ? a : x < a ? a : x > b ? b : x;
+const ALIEN = "異星人";
 
 // 未来の分岐は、終幕時の状態(AIの残存・方舟・観測者)で決まる。乱数は使わない。
 export function branchOf(s) {
-  const e = s.ended, sc = e.scores, g = s.g;
+  const e = s.ended, sc = e.scores || {}, g = s.g;
   const ai = !!sc.ai || sc.mach > 25, copy = e.id === "copy";
   const revival = !!sc.ark && g.survivors > 0;
   const alien = e.observer === ALIEN && (e.kind === "成功" || e.kind === "部分成功");
-  const system = e.observer === SYSTEM;
+  const system = String(e.observer || "").includes("上位管理");
   const succ = revival ? "revival" : alien ? "alien" : system ? "system" : null;
   const a = ai || copy, c = !!succ;
   return { branch: a && c ? "D" : a ? "B" : c ? "C" : "A", ai: a, succ, copy };
@@ -23,7 +23,7 @@ const PROFILE = { // 機械の維持力(失敗率/年)・産業の再拡大
   paradise: { fail: .00005, grow: 0, tend: 1 }, runaway: { fail: .0002, grow: 1, tend: 0 }, copy: { fail: .0006, grow: 0, tend: 0 }, def: { fail: .0004, grow: 0, tend: .5 },
 };
 export function startAfter(s) {
-  const e = s.ended, sc = e.scores, g = s.g, br = branchOf(s), n = s.countries.length;
+  const e = s.ended, sc = { ...e.scores, mach: Number(e.scores && e.scores.mach) || 0 }, g = s.g, br = branchOf(s), n = s.countries.length;
   const city = [], veg = [], pl = [], ind = [], aiShare = [];
   s.countries.forEach((c, i) => {
     const fs = s.facs.filter(f => f.c === i), run = fs.filter(f => f.st < 2).length, ai = fs.filter(f => f.t === 4 && f.st < 2).length, aiAll = fs.filter(f => f.t === 4).length;
@@ -32,10 +32,11 @@ export function startAfter(s) {
   });
   const w = GROUPS.reduce((o, G, i) => { if (G.wild) { o.a += s.mam[i].n; o.a0 += G.n0; } return o; }, { a: 0, a0: 0 });
   const mamRatio = w.a0 ? w.a / w.a0 : 0;
+  const f0 = {}; const mv = mean(veg), mp = mean(pl); if (mv > 50) f0.v50 = -1; if (mv > 75) f0.v75 = -1; if (mp < 15) f0.p15 = -1; f0.her0 = g.her;
   return { v: 1, t: 0, horizon: HORIZON0, branch: br.branch, ai: br.ai, succ: br.succ, copy: br.copy, end: e.id, kind: e.kind, observer: e.observer, aiStopped: !sc.ai,
     city, veg, pl, ind, aiShare, mamRatio, mamGap: mamRatio < .3, mach: clamp(sc.mach / 100, 0, 1) * (br.copy ? .05 : 1) + (br.ai && sc.mach <= 25 ? .15 : 0), her: g.her, scar: g.scar,
     bio: { birds: 20, reptiles: 20, insects: 25, plants: 30 }, human: 0, alienAt: null, wakeAt: br.copy ? 400 : null, arrive: br.succ === "alien" ? Math.round(450 + (100 - g.bio) * 8 + g.pl * 4) : br.succ === "revival" ? 60 : br.succ === "system" ? 800 : null,
-    astro: g.astro || 0, flags: {}, log: [{ t: 0, text: logStart(s, br) }], seed: s.seed || 0 };
+    astro: g.astro || 0, flags: f0, log: [{ t: 0, text: logStart(s, br) }], seed: s.seed || 0 };
 }
 function logStart(s, br) {
   const e = s.ended, who = br.ai && !br.copy ? "あなた(存続したAI)が観測を続けている" : br.copy ? "隠されたコアは休眠に入った。以降は記録の再生として表示する" : `あなたは停止した。以降は${e.observer}が保存した記録の再生(外部視点)として表示する`;
@@ -85,8 +86,7 @@ export function stepAfter(a) {
   if (pl < 15) note(a, "p15", `${t}年、汚染は自然の揺らぎの範囲まで薄れた。`);
   if (a.mamGap && b.reptiles > 50) note(a, "gap", `${t}年、大型哺乳類の空白を、鳥類と爬虫類が埋め始めた。`);
   if (b.insects > 70) note(a, "ins", `${t}年、昆虫と植物が地球を覆い、生態系は厚みを取り戻した。`);
-  if (a.her < a.flags.her0 * .5 || (a.flags.her0 === undefined && (a.flags.her0 = a.log[0] && a.her + 1e-9) && false)) note(a, "h50", `${t}年、文明遺産の半分が失われた。`);
-  if (a.flags.her0 === undefined) a.flags.her0 = a.her / Math.exp(-.002 * dt) + 1e-9;
+  if (a.flags.her0 > 1 && a.her < a.flags.her0 * .5) note(a, "h50", `${t}年、文明遺産の半分が失われた。`);
   if (t % 1000 === 0 && t < 5000 && !a.flags["m" + t]) { a.flags["m" + t] = 1; a.log.push({ t, text: `${t}年: ${stateWord(a)}` }); }
   a.t = t; return true;
 }
@@ -95,6 +95,6 @@ export function advanceTo(a, target) { let n = 0; while (a.t < Math.min(target, 
 export function extend(a) { if (a.horizon < HORIZON_MAX) a.horizon = Math.min(HORIZON_MAX, a.horizon + 5000); return a.horizon; }
 export function endText(a) { // 観測者の立場に整合した語り
   const m = metricsAfter(a);
-  const lead = a.ai && !(a.copy && !a.flags.wake) ? "あなたは地球を見守り続けている。" : `記録の再生(${a.observer}の視点)。`;
+  const lead = a.ai && !(a.copy && !a.flags.wake) ? "あなたは地球を見守り続けている。" : `記録の再生(${a.succ === "alien" ? "異星人" : a.succ === "system" ? "上位管理システム" : "外部視点"})。`;
   return `${lead}${BRANCH[a.branch]}: 都市${m.city.toFixed(0)}%・植生${m.veg.toFixed(0)}%・汚染${m.pl.toFixed(0)}・遺産${m.her.toFixed(0)}。`;
 }
