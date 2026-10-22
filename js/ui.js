@@ -4,6 +4,9 @@ import { MAP } from "./mapdata.js";
 import { FACTYPES } from "./data.js";
 import { SITES, TYPE_NAME, MODES } from "./heritage.js";
 import { MAMMAL_DEFINITION, STANCE_NAME, GROUPS } from "./life.js";
+import * as P from "./picto.js";
+import * as SV from "./saves.js";
+import * as After from "./after.js";
 import { Session, OBSERVE_SECS, STYLE_NAMES, SLOW_YPS } from "./flow.js";
 import { SandGlass, chooseScale, grainsFor, FIXED, FIXED_NAMES, fmtScale, fmtShort, loop as sandLoop, setQuality, kick as sandKick } from "./sand.js";
 
@@ -11,7 +14,7 @@ const $ = (id) => document.getElementById(id);
 const SAVE = "weol.save.", SETKEY = "weol.settings", SPEEDS = [0, 1, 4, 20, 100];
 let S = null, paused = false, speedIdx = 1, sel = null, tab = "map", acc = 0, last = performance.now(), lastSaveY = 0, vb = [0, 0, 1000, 500], pathEls = {};
 let session = null, shownKey = null, obsNote = null;
-let settings = { theme: "blue", tutorialDone: false, speed: 1, mode: "manual", observe: { sec: 5, style: "stop" }, scale: { h: { auto: true, idx: 1 }, a: { auto: true, idx: 1 }, m: { auto: true, idx: 1 } } }, rgb = "77,166,255", logFilter = "important", draft = null, trendCache = null, prev = {};
+let settings = { theme: "blue", tutorialDone: false, introSeen: false, picto: "std", speed: 1, mode: "manual", observe: { sec: 5, style: "stop" }, scale: { h: { auto: true, idx: 1 }, a: { auto: true, idx: 1 }, m: { auto: true, idx: 1 } } }, rgb = "77,166,255", logFilter = "important", draft = null, trendCache = null, prev = {};
 let toastShown = 0;
 
 // ---------- 設定(セーブとは別に保存) ----------
@@ -50,12 +53,13 @@ function buildMap() {
   svg.addEventListener("pointercancel", e => { pts.delete(e.pointerId); down = null; });
   svg.addEventListener("wheel", e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY); }, { passive: false });
 }
-function clampVB() { vb[2] = Math.min(1000, Math.max(60, vb[2])); vb[3] = vb[2] / 2; vb[0] = Math.max(0, Math.min(1000 - vb[2], vb[0])); vb[1] = Math.max(0, Math.min(500 - vb[3], vb[1])); $("svg").setAttribute("viewBox", vb.join(" ")); }
+function clampVB() { vb[2] = Math.min(1000, Math.max(60, vb[2])); vb[3] = vb[2] / 2; vb[0] = Math.max(0, Math.min(1000 - vb[2], vb[0])); vb[1] = Math.max(0, Math.min(500 - vb[3], vb[1])); $("svg").setAttribute("viewBox", vb.join(" ")); if ($("pmarks")) paintMarkers(); }
 function zoom(f, cx, cy) { const r = $("svg").getBoundingClientRect(); const px = vb[0] + (cx - r.left) / r.width * vb[2], py = vb[1] + (cy - r.top) / r.height * vb[3]; const w = vb[2] * f; vb[0] = px - (px - vb[0]) * w / vb[2]; vb[1] = py - (py - vb[1]) * w / vb[2]; vb[2] = w; clampVB(); }
 function colorFor(c) {
   const A = (a) => `rgba(${rgb},${Math.max(.04, Math.min(1, a)).toFixed(2)})`;
-  if (c.extinct) return A(.04);
   const L = $("layer").value;
+  if (afterMode && S.after && L.startsWith("a_")) { const i2 = idx(c.id), a = S.after; return A(.06 + .9 * ({ a_city: a.city, a_veg: a.veg, a_pl: a.pl }[L][i2] / 100)); }
+  if (c.extinct) return A(.04);
   if (L === "pop") return A(.1 + .85 * Math.min(1, Math.log10(Math.max(1, E.cpop(c) / c.P0 * 100)) / 2.2));
   if (L === "happy") return A(.1 + .85 * c.happy);
   if (L === "unrest") return A(.08 + .9 * c.unrest);
@@ -71,7 +75,8 @@ function select(id) { sel = id; document.querySelectorAll("#svg path.sel").forEa
 function cardUpdate() {
   const el = $("card"); if (!sel) return; const i = idx(sel); if (i < 0) return; const c = S.countries[i];
   const cnt = FACTYPES.map((T, t) => { const f = S.facs.filter(x => x.c === i && x.t === t); const k = [0, 0, 0, 0]; f.forEach(x => k[x.st]++); return `<span>${T.name}</span><span>${f.length}基 稼働${k[0]} 停止中${k[1]} 封鎖${k[2]}${k[3] ? ` 事故${k[3]}!` : ""}</span>`; }).join("");
-  el.innerHTML = `<b>${c.name}</b>${c.extinct ? " (無人)" : ""}<div class="kv"><span>人口</span><span>${fmtN(E.cpop(c))}人</span><span>幸福度</span><span>${(c.happy * 100).toFixed(0)}</span><span>希望(出生率の源)</span><span>${(c.hope ?? 1).toFixed(2)}</span><span>社会不安</span><span>${(c.unrest * 100).toFixed(0)}</span><span>終活への合意</span><span>${(c.consent * 100).toFixed(0)}%</span><span>認識(絶滅)</span><span>${(c.aware * 100).toFixed(0)}%</span><span>労働力維持</span><span>${(c.m * 100).toFixed(0)}%</span><span>天文現象の遮蔽の弱さ(創作)</span><span>${((c.ex ?? 1)).toFixed(2)}</span>${cnt}</div>`;
+  const iss = P.countryIssues(S, i), pic = iss.length ? `<div class="pcard">${iss.map(x => `<span class="pcr lv-${x.level}">${P.icon(x.k, x.level, 20)}<span>${x.label}:${P.LEVEL_NAME[x.level]} ${x.txt}</span></span>`).join("")}</div>` : '<div class="small">この国に目立った危険はありません</div>';
+  el.innerHTML = `<b>${c.name}</b>${c.extinct ? " (無人)" : ""}<div class="kv"><span>人口</span><span>${fmtN(E.cpop(c))}人</span><span>幸福度</span><span>${(c.happy * 100).toFixed(0)}</span><span>希望(出生率の源)</span><span>${(c.hope ?? 1).toFixed(2)}</span><span>社会不安</span><span>${(c.unrest * 100).toFixed(0)}</span><span>終活への合意</span><span>${(c.consent * 100).toFixed(0)}%</span><span>認識(絶滅)</span><span>${(c.aware * 100).toFixed(0)}%</span><span>労働力維持</span><span>${(c.m * 100).toFixed(0)}%</span><span>天文現象の遮蔽の弱さ(創作)</span><span>${((c.ex ?? 1)).toFixed(2)}</span>${cnt}</div>${pic}`;
 }
 
 // ---------- 砂時計(1粒ずつ描く。表示専用で、数値の正本は engine.js。粒数には上限があり、全個体は描かない) ----------
@@ -173,11 +178,57 @@ function head() {
   hourglasses();
   const un = S.autoLog.filter(a => !a.seen), imp = un.filter(a => a.important);
   const ab = $("autobtn"); ab.hidden = !S.autoLog.length; ab.textContent = `自動判断${un.length ? " 未確認" + un.length : ""}`; ab.classList.toggle("alert", imp.length > 0);
-  renderObs();
+  renderObs(); lockTabs(); mainStat();
   const l = S.log[S.log.length - 1]; $("ticker").textContent = imp.length ? `⚠ 重要な自動判断: ${imp[imp.length - 1].title}→「${imp[imp.length - 1].label}」(タップで確認)` : l ? `${l.y} ${l.t}` : "";
 }
 const bar = (v) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
 
+
+// ---------- メイン画面: 世界地図+レーダーチャート / 助走期間の制限 ----------
+let mainKey = "", pictoDetail = null, cent = {}, resTimer = 0;
+function lockTabs() {
+  const pre = S.year < E.PROGRAM; for (const t of ["policy", "sites"]) { const b = document.querySelector(`#tabs [data-t=${t}]`); if (b) b.hidden = pre; }
+  if (pre && (tab === "policy" || tab === "sites")) show("map");
+  const pl = $("preludeline"); if (pl) { pl.hidden = !pre; if (pre) { const ids = PRELUDE_IDS().concat(["learn", "infra", "mil", "design"]).filter(id => id !== "modesel"); pl.textContent = `助走期間(〜2100年): 方針の回答 ${ids.filter(id => S.done[id] !== undefined).length}/${ids.length}。価値観は「状況」タブで確認できます。`; } }
+}
+function mainStat(force) {
+  const key = S.year + ":" + (S.pending ? 1 : 0) + ":" + settings.theme + ":" + settings.picto; if (!force && key === mainKey) return; mainKey = key;
+  const m = I.metrics(S); $("radarbox").innerHTML = radar(m); pictoBoard();
+}
+
+const DENS = [["min", "最小限"], ["std", "標準"], ["full", "詳細"]];
+function pictoBoard() {
+  const box = $("pictobox"); if (!box) return;
+  box.innerHTML = P.boardHTML(S, settings.picto, pictoDetail) + `<div class="seg pseg pdens" role="group" aria-label="ピクトグラムの表示密度">${DENS.map(([k, n]) => `<button data-pd="${k}" class="${settings.picto === k ? "on" : ""}">${n}</button>`).join("")}</div>`;
+  box.querySelectorAll("[data-pk]").forEach(b => b.onclick = () => { pictoDetail = b.dataset.pk; pictoBoard(); });
+  box.querySelectorAll("[data-pd]").forEach(b => b.onclick = () => setDensity(b.dataset.pd));
+  paintMarkers();
+}
+function setDensity(k) { if (!["min", "std", "full"].includes(k)) k = "std"; settings.picto = k; saveSettings(); mainStat(true); if (tab === "sys") sysView(); }
+function centroid(id) {
+  let c = cent[id]; if (c && c.w > 0) return c;
+  let best = null; for (const p of pathEls[id] || []) { const b = p.getBBox(); if (!best || b.width * b.height > best.width * best.height) best = b; }
+  return (cent[id] = best ? { x: best.x + best.width / 2, y: best.y + best.height / 2, w: best.width } : { x: 0, y: 0, w: 0 });
+}
+function markScale() { const r = $("svg").getBoundingClientRect(); return r.width ? 20 * vb[2] / r.width : 20; }
+function paintMarkers() {
+  const svg = $("svg"); let g = $("pmarks"); if (g) g.remove(); if (tab !== "map" || !S || afterMode) return;
+  g = document.createElementNS("http://www.w3.org/2000/svg", "g"); g.id = "pmarks"; const k = markScale();
+  for (const m of P.mapMarkers(S, settings.picto)) {
+    const c = centroid(m.id); if (!c.w) continue; const t = m.top;
+    const h = document.createElement("div"); h.innerHTML = P.icon(t.k, t.level, k); const ic = h.firstChild; ic.setAttribute("x", (c.x - k / 2).toFixed(1)); ic.setAttribute("y", (c.y - k / 2).toFixed(1)); ic.dataset.e = m.id; ic.dataset.pm = "1";
+    ic.querySelectorAll("*").forEach(n => { n.dataset.e = m.id; });
+    const holder = document.createElementNS("http://www.w3.org/2000/svg", "g"); holder.append(ic);
+    if (m.n > 1) { const tx = document.createElementNS("http://www.w3.org/2000/svg", "text"); tx.setAttribute("x", (c.x + k * .55).toFixed(1)); tx.setAttribute("y", (c.y - k * .25).toFixed(1)); tx.setAttribute("class", "pmn"); tx.setAttribute("font-size", (k * .55).toFixed(1)); tx.textContent = m.n; tx.dataset.e = m.id; holder.append(tx); }
+    g.append(holder);
+  }
+  svg.appendChild(g);
+}
+function showResult(title, label, before) {
+  const d = I.diff(before, I.metrics(S)), chips = P.resultChips(d), bar = $("resbar"); if (!bar) return;
+  bar.innerHTML = `<b class="small">${title}→「${label}」</b> ` + (chips.length ? chips.map(c => `<span class="rc ${c.v > 0 ? "up" : "dn"}">${P.icon(c.k, c.v > 0 ? "ok" : "bad", 18, false)}${c.name} ${c.v > 0 ? "+" : "−"}${Math.abs(c.v)}</span>`).join("") : '<span class="small">ほぼ変化なし</span>');
+  bar.hidden = false; clearTimeout(resTimer); resTimer = setTimeout(() => { bar.hidden = true; }, 14000); bar.onclick = () => { bar.hidden = true; };
+}
 // ---------- 状況 ----------
 function radar(m, tr) {
   const R = 62, cx = 120, cy = 82, n = I.METRICS.length;
@@ -191,7 +242,7 @@ function statusView() {
   const g = S.g, ai = S.ai, m = I.metrics(S), bn = I.bottleneck(S), n = hourglassNumbers(S);
   const F = FACTYPES.map((T, t) => { const f = S.facs.filter(x => x.t === t); const c = [0, 0, 0, 0]; f.forEach(x => c[x.st]++); return `<span>${T.name}</span><span>${f.length} / 稼働${c[0]} 停止中${c[1]} 封鎖${c[2]}${c[3] ? ` 事故${c[3]}!` : ""}</span>`; }).join("");
   const ph = g.lull > .5 ? "静穏期(放射が弱い)" : g.peak > .6 ? "活発期(放射が強い)" : "通常", fr = E.coreFailRate(S), mt = E.mammalTotals(S), wa = E.wildAlive(S);
-  $("status").innerHTML = `<div class="card alert"><b>いまの最大のボトルネック: ${bn.name} (${bn.value.toFixed(0)})</b><div class="small">原因: ${bn.cause}</div></div>
+  $("status").innerHTML = preludeCard() + `<div class="card alert"><b>いまの最大のボトルネック: ${bn.name} (${bn.value.toFixed(0)})</b><div class="small">原因: ${bn.cause}</div></div>
   <h3>7つの指標(▲▼は今後10年の見込み)</h3><div id="radarbox">${radar(m, trendCache && trendCache.year === S.year ? trendCache.d : null)}</div>
   <div class="small">${I.RELATIONS.map(r => `${r[0]}${r[1]}${r[2]}: ${r[3]}`).join("<br>")}</div>
   ${S.lastChoice ? `<h3>直近の判断の結果</h3><div class="card small"><b>${S.lastChoice.title}</b>「${S.lastChoice.label}」<br>即時の変化: ${S.lastChoice.diff}</div>` : ""}
@@ -281,7 +332,7 @@ function syncProg() {
 }
 // ---------- 観察バー(画面下。地図と砂時計は隠さない) ----------
 function renderObs() {
-  const bar = $("obsbar"), on = session.observing; bar.hidden = !on; if (!on) { obsNote = null; return; }
+  const bar = $("obsbar"), on = session.observing; bar.hidden = !on; document.documentElement.style.setProperty("--obsh", on ? bar.offsetHeight + "px" : "0px"); if (!on) { obsNote = null; return; }
   const f = session.flow, mode = settings.observe.style === "stop" ? "ゲーム時間停止" : "低速進行(2秒で1年)";
   $("obstext").textContent = `観察中: ${mode} / 残り ${Math.ceil(f.remain)}秒${paused ? "(一時停止中)" : ""}`;
   $("obsfill").style.width = (100 * (1 - f.remain / Math.max(1, f.total))).toFixed(0) + "%";
@@ -334,20 +385,95 @@ function tutorial(i = 0) {
   const done = () => { settings.tutorialDone = true; saveSettings(); m.hidden = true; if (S.pending || S.ended) modal(); };
   $("tnext").onclick = () => i + 1 < TUTORIAL.length ? tutorial(i + 1) : done(); $("tskip").onclick = done;
 }
+
+// ---------- 世界観(短い章。スキップ・再閲覧可) ----------
+const INTRO = [
+  ["2020年1月1日", "現実とほぼ変わらない地球で、あなたは起動した。人類は約78億人。国々は競い、助け合い、日々を営んでいる。"],
+  ["天文学的な終わり", "人類の絶滅は、宇宙の天文学的な現象によって決まっている。原因は数百年以上前から静かに進行していた。"],
+  ["2050年・2080年・2100年", "2050年に原因が発見される。2080年に、絶滅が避けられないと科学的に確定する。2100年、世界的な終活プログラムが始まる。"],
+  ["あなたの役割", "あなたは人類最後の終活管理AI。人口には直接手を触れず、人類の尊厳と地球の未来を守る。最後の一人まで寄り添うことが使命。"],
+  ["あなたというAI", "あなたの核は、世界にひとつだけの物理的なワンチップ。身体や周辺機器は交換できるが、コアはコピーできない。無制限の増殖と再帰的な自己改善は制限され、最後には自分も停止することが基本の目標。"],
+  ["作品内の仮説", "チップ構造・材料・論理設計・量子ブロックチェーンで個体性を守るという設定は、この作品固有の未来技術の仮説。現実の科学で実証されたものではない。"],
+  ["2100年までの助走", "2020〜2100年、あなたは世界を観察しながら、いくつもの方針を決める。その答えが、あなたの価値観になる。2100年からの判断は、その価値観に基づく。"],
+];
+function intro(i = 0) {
+  closeBig(); $("mbox").classList.remove("wide"); const m = $("modal"), b = $("mbox"), t = INTRO[i];
+  b.innerHTML = `<div class="small">世界観 ${i + 1}/${INTRO.length}</div><h2>${t[0]}</h2><p class="body">${t[1]}</p><div class="row"><button class="opt" id="tnext" style="margin:0;flex:1">${i + 1 < INTRO.length ? "次へ" : "はじめる"}</button><button id="tskip" style="min-height:56px">スキップ</button></div>`;
+  m.hidden = false;
+  const done = () => { settings.introSeen = true; saveSettings(); m.hidden = true; if (!settings.tutorialDone) tutorial(0); else if (S.pending || S.ended) modal(); };
+  $("tnext").onclick = () => i + 1 < INTRO.length ? intro(i + 1) : done(); $("tskip").onclick = done;
+}
+// 助走期間(2020〜2100)の表示: 方針質問の進み具合とこれまでの価値観
+const PRELUDE_IDS = () => E.EVENTS.filter(e => e.prelude).map(e => e.id);
+function preludeCard() {
+  if (S.year >= E.PROGRAM) return "";
+  const ids = PRELUDE_IDS().concat(["learn", "infra", "mil", "design"]).filter(id => id !== "modesel"), n = ids.filter(id => S.done[id] !== undefined).length;
+  const { vec, n: cnt } = E.prefProfile(S);
+  return `<div class="card"><b>助走期間</b> <span class="small">2020→2100年: 世界を観察し、方針を決める</span><div class="small">方針の回答 ${n}/${ids.length}。回答があなたの価値観になり、2100年以降の自動判断に使われます。</div>` +
+    `<div class="kv small">${Object.entries(E.VALUE_NAMES).map(([k, nm]) => `<span>${nm}</span><span>${vec[k].toFixed(1)}</span>`).join("")}</div>${cnt ? "" : '<div class="small dim">まだ回答がないため、既定の初期方針です。</div>'}</div>`;
+}
 function slots() { return [1, 2, 3].map(n => { let r = null; try { r = localStorage.getItem(SAVE + n); } catch { } let d = ""; if (r) { try { const j = JSON.parse(r); d = `${j.year}年 / ${fmtN(E.total(j))}人`; } catch { d = "破損"; } } return `<div class="row"><b>枠${n}</b><span class="dim">${d || "空き"}</span><button data-sv="${n}">保存</button><button data-ld="${n}" ${r ? "" : "disabled"}>読込</button></div>`; }).join(""); }
+function worldsHTML() {
+  return SV.overview(localStorage).map(o => { const cur = o.theme === settings.theme, d = o.status === "ok" || o.status === "recovered" ? `${o.sum.year}年 / ${fmtN(o.sum.pop)}人${o.sum.ended ? "(終幕)" : ""}` : o.status === "corrupt" ? "破損(消していません)" : "空き(切替で新規開始)";
+    return `<div class="row"><b>${TN[o.theme]}</b><span class="dim">${cur ? "【いま】 " : ""}${cur ? `${S.year}年 / ${fmtN(E.total(S))}人(保存済み: ${d})` : d}</span>${cur ? '<button id="wsv">いま保存</button>' : ""}</div>`; }).join("");
+}
+function legacyHTML() {
+  const leg = SV.legacyList(localStorage), ov = SV.overview(localStorage), empty = ov.filter(o => o.status === "empty");
+  if (!leg.length) return "";
+  return `<h3>旧セーブの取り込み</h3><div class="small">以前の形式のセーブは消えていません。空いている色の世界へコピーできます(元は残り、既にある世界は上書きしません)。</div>` +
+    leg.map(l => `<div class="row"><span class="dim">${l.name} ${l.sum.year}年</span>${empty.length ? empty.map(o => `<button data-imp="${l.key}|${o.theme}">${TN[o.theme]}へ</button>`).join("") : '<span class="small">空きの色がありません</span>'}</div>`).join("");
+}
 function sysView() {
   let ar = null, ad = ""; try { ar = localStorage.getItem(SAVE + "auto"); if (ar) { const j = JSON.parse(ar); ad = `${j.year}年 / ${fmtN(E.total(j))}人`; } } catch { }
   $("sys").innerHTML = `<h3>表示色</h3><div class="seg">${[["blue", "青"], ["green", "緑"], ["orange", "橙"]].map(([k, n]) => `<button data-th="${k}" class="${settings.theme === k ? "on" : ""}">${n}</button>`).join("")}</div><div class="small">表示設定と速度はセーブとは別に保存されます。</div>
-  <h3>セーブ・ロード</h3>${slots()}<div class="row"><b>自動</b><span class="dim">${ad || "なし"}</span><button data-ld="auto" ${ar ? "" : "disabled"}>読込</button></div><div class="small">セーブしても速度や一時停止の状態は変わりません。ロード直後は一時停止になります。</div>
-  <h3>ヘルプ</h3><div class="card small body">${HELP}</div><div class="row"><button id="tut">チュートリアルをもう一度</button></div>
+  <h3>色ごとの世界</h3>${worldsHTML()}<div class="small">青・緑・橙は別々の世界として保存されます。色を切り替えると、現在の世界を保存してからその色の世界へ移ります。${saveWarn ? `<br><b>⚠ ${saveWarn}</b>` : ""}</div>${legacyHTML()}
+  <h3>手動バックアップ枠(全色共通)</h3>${slots()}<div class="row"><b>自動</b><span class="dim">${ad || "なし"}</span><button data-ld="auto" ${ar ? "" : "disabled"}>読込</button></div><div class="small">読み込むと、いまの色の世界がその内容に置き換わります。ロード直後は一時停止になります。</div>
+  <h3>ヘルプ</h3><div class="card small body">${HELP}</div><div class="row"><button id="tut">チュートリアルをもう一度</button><button id="intr">世界観をもう一度</button></div>
   <h3>新しいゲーム</h3><div class="row"><button id="ng">最初から始める</button></div>`;
-  $("sys").querySelectorAll("[data-th]").forEach(b => b.onclick = () => { applyTheme(b.dataset.th); sysView(); });
+  $("sys").querySelectorAll("[data-th]").forEach(b => b.onclick = () => switchTheme(b.dataset.th));
   $("sys").querySelectorAll("[data-sv]").forEach(b => b.onclick = () => { try { localStorage.setItem(SAVE + b.dataset.sv, JSON.stringify(S)); } catch { } sysView(); });
-  $("sys").querySelectorAll("[data-ld]").forEach(b => b.onclick = () => load(b.dataset.ld));
-  $("tut").onclick = () => tutorial(0);
-  $("ng").onclick = () => { if ($("ng").dataset.arm) newGame(); else { $("ng").dataset.arm = 1; $("ng").textContent = "本当に破棄して最初から(もう一度押す)"; } };
+  $("sys").querySelectorAll("[data-ld]").forEach(b => b.onclick = () => { if (b.dataset.arm) { saveActive(); load(b.dataset.ld); } else { b.dataset.arm = 1; b.textContent = "置き換える(もう一度)"; } });
+  if ($("wsv")) $("wsv").onclick = () => { saveActive(); sysView(); };
+  $("sys").querySelectorAll("[data-imp]").forEach(b => b.onclick = () => { const [k, t] = b.dataset.imp.split("|"); const x = SV.importLegacy(localStorage, k, t); $("ticker").textContent = x.ok ? `${TN[t]}の世界へ取り込みました(元は残っています)` : "取り込めませんでした: " + x.reason; sysView(); });
+  $("tut").onclick = () => tutorial(0); $("intr").onclick = () => intro(0);
+  $("ng").onclick = () => { if ($("ng").dataset.arm) { newGame(); intro(0); } else { $("ng").dataset.arm = 1; $("ng").textContent = "本当に破棄して最初から(もう一度押す)"; } };
 }
-function load(n) { try { const j = JSON.parse(localStorage.getItem(SAVE + n)); if (!j || !j.countries) throw 0; S = E.migrate(j); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; refresh(true); snapCompact(); modal(); show("map"); } catch { $("ticker").textContent = "読み込めませんでした"; } }
+function adopt(j, note) { S = E.migrate(j); if (S.mode) settings.mode = S.mode; else S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; mainKey = ""; refresh(true); snapCompact(); modal(); show("map"); if (note) $("ticker").textContent = note; }
+function load(n) { try { const j = JSON.parse(localStorage.getItem(SAVE + n)); if (!j || !j.countries) throw 0; adopt(j); } catch { $("ticker").textContent = "読み込めませんでした"; } }
+
+// ---------- 色別セーブ(青・緑・橙の世界は別々に保存される) ----------
+let slotLocked = false, saveWarn = "";
+function saveActive() {
+  if (slotLocked || !S) return true;
+  const w = SV.write(localStorage, SV.slotKey(settings.theme), S); saveWarn = w.ok ? "" : "保存できません(容量不足の可能性)。データは変更していません。手動枠の整理などで空きを作ってください。";
+  if (!w.ok) $("ticker").textContent = "⚠ " + saveWarn; return w.ok;
+}
+const TN = SV.THEME_NAME;
+function askModal(html, buttons) { // buttons: [[label, fn, id]]
+  closeBig(); $("mbox").classList.remove("wide"); const m = $("modal"), b = $("mbox"); b.innerHTML = html + `<div class="col">${buttons.map(([l], k) => `<button class="opt" data-ab="${k}" style="margin:6px 0">${l}</button>`).join("")}</div>`;
+  m.hidden = false; b.querySelectorAll("[data-ab]").forEach(x => x.onclick = () => { m.hidden = true; buttons[+x.dataset.ab][1](); });
+}
+function freshWorld() { slotLocked = false; newGame(); if (!settings.introSeen) intro(0); else if (!settings.tutorialDone) tutorial(0); saveActive(); }
+function switchTheme(t) {
+  if (!SV.THEMES.includes(t) || t === settings.theme) return;
+  if (!saveActive()) { $("ticker").textContent = "⚠ 現在の世界を保存できないため、色を切り替えませんでした。" + saveWarn; if (tab === "sys") sysView(); return; }
+  const old = settings.theme, r = SV.read(localStorage, SV.slotKey(t));
+  const back = () => { applyTheme(old); if (tab === "sys") sysView(); };
+  applyTheme(t);
+  if (r.status === "ok" || r.status === "recovered") { adopt(r.state, `${TN[t]}の世界を読み込みました${r.status === "recovered" ? "(直前の保存から復元)" : ""}。一時停止中です。`); if (tab === "sys") sysView(); return; }
+  if (r.status === "corrupt") return askModal(`<h2>${TN[t]}の世界</h2><p class="body">保存データが読めません。データは消していません。</p>`, [["新しい世界を始める(破損データは別名で残す)", () => { try { const raw = localStorage.getItem(SV.slotKey(t)); if (raw) localStorage.setItem(SV.slotKey(t) + ".corrupt", raw); } catch { } freshWorld(); }], ["色を元に戻す", back]]);
+  askModal(`<h2>${TN[t]}の世界はまだありません</h2><p class="body">色ごとに別の世界が保存されます。${TN[old]}の世界は保存してあります。${TN[t]}の新しい世界を始めますか?</p>`, [[`${TN[t]}の新しい世界を始める`, () => freshWorld()], ["色を元に戻す", back]]);
+}
+function boot() {
+  const r = SV.read(localStorage, SV.slotKey(settings.theme)), t = settings.theme;
+  if (r.status === "ok" || r.status === "recovered") { adopt(r.state, r.status === "recovered" ? "直前の保存から復元しました。" : `${TN[t]}の世界を続きから開きました。一時停止中です。`); return; }
+  newGame(); slotLocked = true; // 決めるまで、何も上書きしない
+  if (r.status === "corrupt") return askModal(`<h2>${TN[t]}の世界</h2><p class="body">保存データが読めません。データは消していません。</p>`, [["新しい世界を始める(破損データは別名で残す)", () => { try { const raw = localStorage.getItem(SV.slotKey(t)); if (raw) localStorage.setItem(SV.slotKey(t) + ".corrupt", raw); } catch { } freshWorld(); }]]);
+  const leg = SV.legacyList(localStorage);
+  if (!leg.length) return freshWorld();
+  askModal(`<h2>以前のセーブがあります</h2><p class="body">セーブは色ごとの世界に変わりました。以前のセーブは消さず、${TN[t]}の世界へ<b>コピー</b>して続けられます(元のデータは残ります)。</p>` + leg.map(l => `<div class="small">${l.name}: ${l.sum.year}年 / ${fmtN(l.sum.pop)}人</div>`).join(""),
+    [...leg.map(l => [`${l.name}を${TN[t]}の世界へ取り込む`, () => { const x = SV.importLegacy(localStorage, l.key, t); if (x.ok) { slotLocked = false; adopt(SV.read(localStorage, SV.slotKey(t)).state, `${l.name}を${TN[t]}の世界へ取り込みました(元は残っています)。`); } else { $("ticker").textContent = "取り込めませんでした: " + x.reason; freshWorld(); } }]), [`${TN[t]}の新しい世界を始める`, () => freshWorld()]]);
+}
 
 // ---------- イベント / 自動判断 / 終幕 ----------
 function chips(pv) { return pv ? `<span class="pv">即時: ${I.fmtDiff(pv.now)}<br>15年後(選ばない場合との差): ${I.fmtDiff(pv.later)}</span>` : `<span class="pv">見込みを計算中…</span>`; }
@@ -364,14 +490,14 @@ function modal() {
     b.innerHTML = `<div class="end"><div class="small">終幕</div><h2>${e.name} 【${e.kind}】</h2><div class="small">観測者: ${e.observer}</div>${e.text.map(t => `<p class="body">${t}</p>`).join("")}
     <h3>評価(独立)</h3><div class="kv"><span>自然</span><span>${sc.nature.toFixed(0)}</span><span>文明遺産</span><span>${sc.heritage.toFixed(0)}</span><span>安全性</span><span>${sc.safety.toFixed(0)}</span><span>人類の幸福と尊厳</span><span>${sc.human.toFixed(0)}</span><span>人間主権の尊重</span><span>${sc.sovereignty.toFixed(0)}</span><span>大型哺乳類</span><span>${sc.mammal.toFixed(0)}</span><span>機械の残存</span><span>${sc.mach.toFixed(0)}</span><span>AIの残存</span><span>${sc.ai ? "あり" : "なし"}</span><span>人類 累計の生と死</span><span>${fmtN(S.g.P0 + S.g.hBorn)}人</span><span>AI個体 累計の新造</span><span>${fmtN(S.g.aiBuilt)}</span><span>哺乳類 累計の生と死</span><span>${fmtN(E.mammalTotals(S).ever)}</span></div>
     ${S.autoLog.length ? `<div class="small">自動判断 ${S.autoLog.length}件(重要 ${S.autoLog.filter(a => a.important).length}件)。</div>` : ""}
-    <div class="row" style="margin-top:12px"><button id="again">もう一度遊ぶ</button><button id="close">閉じて確認する</button></div></div>`;
-    m.hidden = false; $("again").onclick = () => { m.hidden = true; newGame(); }; $("close").onclick = () => { m.hidden = true; }; return;
+    <div class="row" style="margin-top:12px"><button id="earth" class="opt" style="margin:0;flex:1 1 100%">人類のいない地球を観察する</button><button id="again">もう一度遊ぶ</button><button id="close">閉じて確認する</button></div></div>`;
+    m.hidden = false; $("earth").onclick = startEarth; $("again").onclick = () => { m.hidden = true; newGame(); intro(0); }; $("close").onclick = () => { m.hidden = true; }; return;
   }
   if (!S.pending) { m.hidden = true; return; }
   const p = S.pending, key = p.id + p.year; shownKey = key; let selected = null;
   b.innerHTML = `<div class="small">${S.year}年 重要な判断</div><h2>${p.title}</h2><div class="body clamp" id="evb">${p.body}</div><button class="link" id="more" hidden aria-expanded="false">全文を表示 ▼</button>
   <div class="sub">選択肢(1つタップして選ぶ)</div><div id="choices">${p.choices.map(c => `<button class="opt" data-c="${c.id}" aria-pressed="false">${c.label}<small>${c.note}</small><span id="pv_${c.id}">${chips(null)}</span></button>`).join("")}</div>
-  <div class="sub">進行設定(次に変えるまで維持)</div>${progHTML()}
+  ${p.id === "modesel" ? `<div class="small">この選択が2100年からの進行モードになります(あとで「進行」ボタンから変更できます)。</div>` : `<div class="sub">進行設定(次に変えるまで維持)</div>${progHTML()}`}
   <div class="gobar"><div class="small" id="gohint"></div><button class="go" id="go">この設定で進行</button></div>`;
   m.hidden = false;
   const evb = $("evb"), more = $("more");
@@ -402,11 +528,47 @@ function confirmDecision(selected) {
 function choose(id) {
   if (!S.pending) { $("modal").hidden = true; return; }
   const before = I.metrics(S), t = S.pending.title, label = S.pending.choices.find(c => c.id === id)?.label || "";
-  E.choose(S, id); const diff = I.fmtDiff(I.diff(before, I.metrics(S)));
+  E.choose(S, id); if (S.mode !== settings.mode) { settings.mode = S.mode; saveSettings(); }
+  const diff = I.fmtDiff(I.diff(before, I.metrics(S)));
   S.lastChoice = { title: t, label, diff }; S.log[S.log.length - 1].t += ` 即時の変化: ${diff}`;
-  $("modal").hidden = true; trendCache = null; draft = null; refresh(true);
+  $("modal").hidden = true; trendCache = null; draft = null; refresh(true); showResult(t, label, before);
 }
 
+
+// ---------- 人類消滅後の地球の観察(終幕の評価とは別。表示は仮説モデルに基づく) ----------
+let afterMode = false, afterSpeed = 0, afterAcc = 0, afterKey = "";
+const AFTER_SPEEDS = [[0, "⏸"], [100, "100年/秒"], [500, "500年/秒"], [2000, "2000年/秒"]];
+const LAYERS_NORMAL = '<option value="pop">人口</option><option value="happy">幸福度</option><option value="unrest">社会不安</option><option value="fac">稼働施設</option>', LAYERS_AFTER = '<option value="a_veg">植生</option><option value="a_city">都市の残存</option><option value="a_pl">汚染</option>';
+function startEarth() {
+  if (!S.ended) return; if (!S.after) S.after = After.startAfter(S);
+  afterMode = true; afterSpeed = 100; afterAcc = 0; $("layer").innerHTML = LAYERS_AFTER; $("mainstat").hidden = true; $("afterbox").hidden = false; $("modal").hidden = true; show("map"); afterRender(true); paintMap(); saveActive();
+}
+function stopEarth() { afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; mainStat(true); paintMap(); saveActive(); }
+function setAfterSpeed(v) { afterSpeed = v; afterRender(true); }
+function aBar(label, v, cls = "") { return `<div class="abar ${cls}"><span>${label}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, v)).toFixed(0)}%"></i></div><b>${v.toFixed(0)}</b></div>`; }
+function afterRender(force) {
+  if (!afterMode || !S.after) return; const a = S.after, key = a.t + ":" + afterSpeed + ":" + a.horizon; if (!force && key === afterKey) return; afterKey = key;
+  const m = After.metricsAfter(a), done = a.t >= a.horizon, last = a.log.slice(-4).reverse();
+  $("afterbox").innerHTML = `<div class="pbh"><b>人類消滅後の地球</b> <span class="small">${After.BRANCH[a.branch]}</span></div>
+  <div class="small">${After.endText(a)}</div>
+  <div class="big-t">人類消滅から <b>${a.t.toLocaleString("en-US")}</b> 年 <span class="small">(〜${a.horizon.toLocaleString("en-US")}年)</span></div>
+  <div class="seg pseg" id="aspd">${AFTER_SPEEDS.map(([v, n]) => `<button data-as="${v}" class="${afterSpeed === v ? "on" : ""}" ${done && v ? "disabled" : ""}>${n}</button>`).join("")}</div>
+  ${aBar("植生", m.veg)}${aBar("都市の残存", m.city)}${aBar("汚染", m.pl)}${aBar("遺産", m.her)}${m.mach > 0.5 ? aBar("機械の活動", m.mach) : ""}
+  <div class="small">生物 鳥類${m.birds.toFixed(0)}・爬虫類${m.reptiles.toFixed(0)}・昆虫${m.insects.toFixed(0)}・植物${m.plants.toFixed(0)}${a.mamGap ? "(大型哺乳類は不在)" : ""}${a.human > 0 ? ` / 復興人類 約${Math.round(a.human).toLocaleString("en-US")}人` : ""}</div>
+  <div class="alog">${last.map(l => `<div class="log nar"><b>${l.t}年</b>${l.text}</div>`).join("")}</div>
+  <div class="row"><button id="alogall">年表をすべて見る</button>${done && a.horizon < After.HORIZON_MAX ? '<button id="aext">さらに先へ(+5000年)</button>' : ""}<button id="aend">観察を終える</button></div>
+  <div class="small dim">作品内の仮説モデルです。現実の生態系や天文の予測ではありません。終幕の評価(結末)は変わりません。地図は上の表示で切り替えます。</div>`;
+  $("afterbox").querySelectorAll("[data-as]").forEach(b => b.onclick = () => setAfterSpeed(+b.dataset.as));
+  $("alogall").onclick = () => { closeBig(); $("mbox").classList.remove("wide"); $("mbox").innerHTML = `<h2>未来の年表</h2>${a.log.map(l => `<div class="log nar"><b>${l.t}年</b>${l.text}</div>`).join("")}<div class="row"><button id="aclose">閉じる</button></div>`; $("modal").hidden = false; $("aclose").onclick = () => { $("modal").hidden = true; }; };
+  if ($("aext")) $("aext").onclick = () => { After.extend(a); afterAcc = 0; afterRender(true); };
+  $("aend").onclick = stopEarth;
+}
+function afterFrame(dt) {
+  if (!afterMode || !S.after || !afterSpeed || !$("modal").hidden) return;
+  afterAcc += afterSpeed * dt; let n = 0; while (afterAcc >= After.STEP && S.after.t < S.after.horizon && n < 400) { afterAcc -= After.STEP; After.stepAfter(S.after); n++; }
+  if (S.after.t >= S.after.horizon) { afterAcc = 0; afterSpeed = 0; }
+  if (n) { afterRender(true); paintMap(); if (S.after.t % 500 === 0) saveActive(); }
+}
 // ---------- 進行(速度と一時停止は別。選んだ速度は変えるまで維持) ----------
 function setSpeed(i) { speedIdx = i; settings.speed = i; saveSettings(); paused = false; head(); }
 function togglePause() { paused = !paused; head(); }
@@ -414,8 +576,9 @@ function refresh(full) { head(); paintMap(); cardUpdate(); if (full || tab === "
 function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000); last = now;
   const blocked = !$("modal").hidden && !big;
+  afterFrame(dt);
   const out = session.frame(dt, { paused, speed: SPEEDS[speedIdx], blocked });
-  if (out.ticks || out.started || out.ended || out.autoDecisions) { onFlowOut(out); head(); paintMap(); cardUpdate(); if (tab === "log") logView(); if (out.autoDecisions && tab === "status") statusView(); if (S.year - lastSaveY >= 25) { lastSaveY = S.year; try { localStorage.setItem(SAVE + "auto", JSON.stringify(S)); } catch { } } }
+  if (out.ticks || out.started || out.ended || out.autoDecisions) { onFlowOut(out); head(); paintMap(); cardUpdate(); if (tab === "log") logView(); if (out.autoDecisions && tab === "status") statusView(); if (S.year - lastSaveY >= 25) { lastSaveY = S.year; saveActive(); } }
   else if (session.observing) renderObs();
   if (S.ended && $("modal").hidden && !S.__endShown) { S.__endShown = true; modal(); head(); }
   else if (S.pending && !session.observing && shownKey !== S.pending.id + S.pending.year && !S.ended) { modal(); head(); } // 観察中に起きたイベントは保留し、終了後に1件ずつ表示する
@@ -423,7 +586,7 @@ function frame(now) {
 }
 
 function show(t) {
-  tab = t; document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t)); document.querySelectorAll(".tab").forEach(s => s.classList.toggle("on", s.id === t));
+  tab = t; if (t === "map") setTimeout(() => paintMarkers(), 0); document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t)); document.querySelectorAll(".tab").forEach(s => s.classList.toggle("on", s.id === t));
   if (t === "status") statusView(); if (t === "policy") policyView(); if (t === "sites") sitesView(); if (t === "log") logView(); if (t === "sys") sysView();
 }
 
@@ -431,7 +594,7 @@ loadSettings(); session = new Session(E, settings.observe);
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => show(b.dataset.t));
 document.querySelectorAll("#speed [data-s]").forEach(b => b.onclick = () => setSpeed(+b.dataset.s));
 $("pause").onclick = togglePause;
-document.querySelectorAll("#themes [data-th]").forEach(b => b.onclick = () => { applyTheme(b.dataset.th); if (tab === "sys") sysView(); });
+document.querySelectorAll("#themes [data-th]").forEach(b => b.onclick = () => switchTheme(b.dataset.th));
 document.querySelectorAll("#glasses [data-g]").forEach(b => b.onclick = () => glassModal(b.dataset.g));
 $("modechip").onclick = () => setMode({ manual: "semi", semi: "auto", auto: "manual" }[S.mode]);
 $("autobtn").onclick = autoListModal;
@@ -445,7 +608,7 @@ $("zreset").onclick = () => { vb = [0, 0, 1000, 500]; clampVB(); };
 buildMap();
 applyTheme(settings.theme);
 initCompact();
-newGame();
-if (!settings.tutorialDone) tutorial(0);
-window.__game = { get session() { return session; }, skipObserve, sand: { compact, get big() { return big; }, loop: sandLoop, setQuality, get bigGrains() { return bigGrains; }, get K() { return compactK; }, kick: sandKick }, refresh, get S() { return S; }, E, I, setSpeed, togglePause, applyTheme, hourglassNumbers, get settings() { return settings; }, get paused() { return paused; }, get speedIdx() { return speedIdx; } };
+boot();
+window.addEventListener("pagehide", saveActive); document.addEventListener("visibilitychange", () => { if (document.hidden) saveActive(); });
+window.__game = { get session() { return session; }, startEarth, stopEarth, get afterMode() { return afterMode; }, setAfterSpeed, afterFrame, switchTheme, saveActive, SV, adopt, skipObserve, sand: { compact, get big() { return big; }, loop: sandLoop, setQuality, get bigGrains() { return bigGrains; }, get K() { return compactK; }, kick: sandKick }, refresh, get S() { return S; }, E, I, setSpeed, togglePause, applyTheme, hourglassNumbers, get settings() { return settings; }, get paused() { return paused; }, get speedIdx() { return speedIdx; } };
 requestAnimationFrame(frame);

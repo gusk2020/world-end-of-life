@@ -11,24 +11,28 @@ const ctx = await b.newContext({ viewport: { width: 360, height: 740 }, hasTouch
 const p = await ctx.newPage(); const errs = [];
 p.on("pageerror", e => errs.push(e.message));
 await p.goto(URL_); await p.waitForTimeout(500);
-const adv = (target) => p.evaluate(([t]) => { const g = window.__game, S = g.S, E = g.E; if (!g.paused) g.togglePause(); while (S.year < t) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } document.getElementById("modal").hidden = true; g.refresh(true); }, [target]); // 一時停止にして進める
+const adv = (target) => p.evaluate(([t]) => { const g = window.__game, S = g.S, E = g.E; if (!g.paused) g.togglePause(); while (S.year < t && !S.ended && E.total(S) > 200) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } document.getElementById("modal").hidden = true; g.refresh(true); }, [target]); // 一時停止にして進める
 
 console.log("■ 360px 表示・チュートリアル");
 ok(await p.locator("#modal:not([hidden]) #tnext").count() === 1, "初回はチュートリアルが出る");
-for (let i = 0; i < 5; i++) { await p.click("#tnext"); await p.waitForTimeout(50); }
+ok(/世界観/.test(await p.textContent("#mbox")), "初回は世界観(背景・主人公説明)が先に出る");
+for (let i = 0; i < 14 && await p.locator("#modal:not([hidden]) #tnext").count(); i++) { await p.click("#tnext"); await p.waitForTimeout(40); }
 ok(await p.locator("#modal:not([hidden])").count() === 0, "チュートリアルを最後まで進められる");
 const noObs = () => p.evaluate(() => { window.__game.settings.observe.sec = 0; }); // 既存の検証では観察フェーズを切る(観察は専用の節で検証)
 await noObs();
 const over = () => p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-for (const t of ["map", "status", "policy", "sites", "log", "sys"]) { await p.click(`#tabs [data-t=${t}]`); await p.waitForTimeout(150); ok(await over() <= 0, `${t}タブで横スクロールなし`); }
+ok(await p.locator("#tabs [data-t=policy]").isHidden() && await p.locator("#tabs [data-t=sites]").isHidden(), "助走期間(〜2100年)は方針・遺産タブが閉じている");
+for (const t of ["map", "status", "log", "sys"]) { await p.click(`#tabs [data-t=${t}]`); await p.waitForTimeout(150); ok(await over() <= 0, `${t}タブで横スクロールなし`); }
 await p.click("#tabs [data-t=map]");
 const hdh = await p.evaluate(() => document.getElementById("hd").getBoundingClientRect().height);
 ok(hdh < 190, `ヘッダ高さ ${Math.round(hdh)}px (360x740の${Math.round(hdh / 7.4)}%)`);
 const mapH = await p.evaluate(() => document.getElementById("mapbox").getBoundingClientRect().height);
 ok(mapH >= 150, `地図の高さ ${Math.round(mapH)}px を確保(砂時計が地図を圧迫しない)`);
-const small = await p.evaluate(() => [...document.querySelectorAll("#speed button,#tabs button,#themes button,.gl")].filter(e => { const r = e.getBoundingClientRect(); return r.height < 30 || r.width < 30; }).length);
+const small = await p.evaluate(() => [...document.querySelectorAll("#speed button,#tabs button,#themes button,.gl")].filter(e => { const r = e.getBoundingClientRect(); return e.offsetParent !== null && (r.height < 30 || r.width < 30); }).length);
 ok(small === 0, "主要ボタンはすべて30px以上");
 await adv(2160);
+for (const t of ["policy", "sites"]) { await p.click(`#tabs [data-t=${t}]`); await p.waitForTimeout(150); ok(await over() <= 0, `${t}タブで横スクロールなし(終活期)`); }
+await p.click("#tabs [data-t=map]");
 const clip = () => p.evaluate(() => [...document.querySelectorAll(".gt")].filter(e => e.scrollWidth > e.clientWidth + 1).length);
 ok(await clip() === 0, "3つの砂時計の数字(10桁超)が360px幅で切れない");
 
@@ -142,18 +146,19 @@ await p.click("#gclose");
 console.log("\n■ テーマ切替(青・緑・橙)と独立保存");
 const col = () => p.evaluate(() => [getComputedStyle(document.documentElement).getPropertyValue("--rgb").trim(), getComputedStyle(document.getElementById("date")).color, document.getElementById("svg").querySelector("path").style.fill]);
 const seen = {};
+const sw = async (th) => { await p.click(`#themes [data-th=${th}]`); await p.waitForTimeout(120); if (await p.locator("#modal:not([hidden]) [data-ab='0']").count()) { await p.click("[data-ab='0']"); await p.waitForTimeout(150); } for (let i = 0; i < 14 && await p.locator("#modal:not([hidden]) #tnext").count(); i++) await p.click("#tnext"); await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (!g.paused) g.togglePause(); }); };
 for (const [th, rgb] of [["green", "51,255,119"], ["orange", "255,160,48"], ["blue", "77,166,255"]]) {
-  await p.click(`#themes [data-th=${th}]`); await p.waitForTimeout(100);
+  await sw(th);
   let [v, text, fill] = await col(); text = text.replace(/ /g, ""); fill = fill.replace(/ /g, ""); seen[th] = text;
   ok(v === rgb && text === `rgb(${rgb})` && fill.includes(rgb), `${th}: 文字・地図がテーマ色`);
 }
 ok(new Set(Object.values(seen)).size === 3, "3色が互いに異なる");
-await p.click("#themes [data-th=orange]");
+await sw("orange");
 ok((await p.evaluate(() => JSON.parse(localStorage.getItem("weol.settings")))).theme === "orange", "設定が localStorage に保存される");
 await p.click("#tabs [data-t=sys]"); await p.click("[data-sv='1']");
 const sv = await p.evaluate(() => localStorage.getItem("weol.save.1"));
 ok(sv && !sv.includes("\"theme\"") && JSON.parse(sv).countries, "セーブデータにテーマは含まれない(独立)");
-await p.click("#themes [data-th=blue]");
+await sw("blue");
 
 console.log("\n■ 速度設定(別操作の一時停止・維持)");
 await p.click("#tabs [data-t=map]");
@@ -164,7 +169,7 @@ await p.click("#pause"); s1 = await st(); ok(s1.paused && s1.idx === 3, "一時�
 await p.click("#pause"); s1 = await st(); ok(!s1.paused && s1.idx === 3, "再開しても速度は×20のまま");
 await p.evaluate(() => window.__game.togglePause());
 await p.click("[data-t=sys]"); await p.click("[data-sv='2']"); s1 = await st(); ok(s1.idx === 3, "セーブしても速度は初期値に戻らない");
-await p.click("[data-ld='2']"); await p.waitForTimeout(100); s1 = await st(); ok(s1.idx === 3 && s1.paused, "ロード後も速度を維持(ロード直後は一時停止)");
+await p.click("[data-ld='2']"); await p.click("[data-ld='2']"); await p.waitForTimeout(100); s1 = await st(); ok(s1.idx === 3 && s1.paused, "ロード後も速度を維持(ロード直後は一時停止)");
 await p.reload(); await p.waitForTimeout(400); ok((await st()).idx === 3, "再読込後も速度を維持"); await noObs();
 ok(await p.locator("#spdlabel").textContent().then(t => /現実1秒/.test(t)), "何倍速かと現実時間の対応を表示");
 // 重要イベント後も維持
@@ -217,9 +222,10 @@ ok(/年後/.test(await p.textContent("#pvbox")), "方針の変更で10年後/40�
 await p.click("#apply"); await p.click("#tabs [data-t=sites]"); ok(await p.locator(".site").count() >= 30, "遺産が30件以上並ぶ");
 
 console.log("\n■ セーブ・ロード");
+await p.evaluate(() => { const g = window.__game; if (!g.paused) g.togglePause(); });
 await p.click("#tabs [data-t=sys]"); await p.click("[data-sv='3']");
 const y0 = await p.evaluate(() => window.__game.S.year); await p.evaluate(() => { window.__game.S.year += 30; });
-await p.click("[data-ld='3']"); await p.waitForTimeout(200);
+await p.click("[data-ld='3']"); await p.click("[data-ld='3']"); await p.waitForTimeout(200);
 ok(await p.evaluate(() => window.__game.S.year) === y0, "ロードで年が戻る");
 console.log("\n■ 自動縮尺: 減少に応じて細かくなり、最終段階では1粒=1個体");
 await adv(3040); // 最終段階まで進める(このあと他の検証はしない)
@@ -273,7 +279,7 @@ console.log("\n■ 観察フェーズ(第4次改修)");
   ok(a1 > a0 && !sawModal, `全自動は選択画面なしで判断を進める(自動判断${a1 - a0}件)`);
   // セーブ/ロード
   await p.evaluate(() => { const g = window.__game; g.S.mode = "manual"; g.session.startObserve(); });
-  await p.click("#tabs [data-t=sys]"); await p.click("[data-sv='1']"); await p.click("[data-ld='1']"); await p.waitForTimeout(250);
+  await p.click("#tabs [data-t=sys]"); await p.click("[data-sv='1']"); await p.click("[data-ld='1']"); await p.click("[data-ld='1']"); await p.waitForTimeout(250);
   ok(await p.evaluate(() => !window.__game.session.observing && window.__game.S.holdAuto === false && window.__game.paused), "観察中のセーブ→ロードで観察は破棄され、一時停止で再開");
 }
 

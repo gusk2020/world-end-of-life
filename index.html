@@ -32,6 +32,9 @@
     <div class="row"><select id="layer" aria-label="表示レイヤ"><option value="pop">人口</option><option value="happy">幸福度</option><option value="unrest">社会不安</option><option value="fac">稼働施設</option></select>
       <button id="zin" aria-label="拡大">＋</button><button id="zout" aria-label="縮小">－</button><button id="zreset">全体</button></div>
     <div id="mapbox"><svg id="svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <div id="mainstat"><div id="radarbox"></div><div id="pictobox"></div></div>
+    <div id="afterbox" class="card" hidden></div>
+    <div id="preludeline" class="small" hidden></div>
     <div id="legend" class="small"></div>
     <div id="card" class="card"><span class="dim">国をタップすると詳細が表示されます</span></div>
   </section>
@@ -44,6 +47,7 @@
 <nav id="tabs">
   <button data-t="map" class="on">地図</button><button data-t="status">状況</button><button data-t="policy">方針</button><button data-t="sites">遺産</button><button data-t="log">年表</button><button data-t="sys">設定</button>
 </nav>
+<div id="resbar" hidden role="status"></div>
 <div id="obsbar" hidden role="status" aria-live="polite"><div class="obsrow"><span id="obstext"></span><button id="obsskip">スキップ</button></div><div class="obsprog"><i id="obsfill"></i></div><button id="obsauto" class="link" hidden></button></div>
 <div id="modal" class="modal" hidden><div class="box" id="mbox"></div></div>
 <script type="module" src="js/ui.js"></script>

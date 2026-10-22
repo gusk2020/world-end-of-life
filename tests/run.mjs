@@ -399,5 +399,37 @@ console.log("\n■ 17. 状態に連動するイベント(第5次)");
   q = prep(); delete q.flags.minorY; delete q.reach; delete q.coop; delete q.decomOrder; q.countries.forEach(c => delete c.sup); let thrown = false; try { for (let i = 0; i < 40; i++) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } } catch (e) { thrown = true; } ok(!thrown, "新しい派生値が無い古いセーブでも継続できる");
 }
 
+console.log("\n■ 18. 助走期間(2020〜2100)の価値観形成・最後の進行モード選択(第6次)");
+{
+  const run = (answers, mode) => { let stance = null; const q = E.newGame(9); q.mode = mode || "manual"; const seen = [];
+    while (q.year < 2101 && !q.ended) { E.tick(q); if (q.pending) { seen.push([q.pending.id, q.year]); const a = answers[q.pending.id]; const idc = q.pending.id; E.choose(q, q.pending.choices.some(c => c.id === a) ? a : q.pending.choices[0].id); if (idc === "q_wild") stance = q.wildStance; } } return { q, seen, stance }; };
+  const base = { modesel: "auto" };
+  const A = run({ ...base, q_liberty: "safe", q_nature: "people", q_heritage: "people", q_mission: "persist", q_wild: "human" });
+  const B = run({ ...base, q_liberty: "free", q_nature: "nature", q_heritage: "keep", q_mission: "stop", q_wild: "protect" });
+  const ids = E.EVENTS.filter(e => e.prelude).map(e => e.id);
+  ok(ids.length >= 8 && ids.every(id => A.q.done[id] !== undefined && A.q.done[id] < 2100 + 1), `助走期間の方針質問 ${ids.length}件が2100年までに出る`);
+  ok(A.q.done.discovery === 2050 && A.q.done.certain === 2080 && A.q.done.program === 2100, "2050年・2080年・2100年の節目は維持される");
+  ok(A.seen.filter(x => x[1] < 2100).length >= 14, `2100年までに ${A.seen.filter(x => x[1] < 2100).length} 回の判断（質問中心）`);
+  const pa = E.prefProfile(A.q).vec, pb = E.prefProfile(B.q).vec;
+  ok(pb.nature > pa.nature && pb.heritage > pa.heritage && pa.ai > pb.ai && pb.wild > pa.wild, `回答が価値観に反映される(自然 ${pa.nature.toFixed(2)}→${pb.nature.toFixed(2)}, 遺産 ${pa.heritage.toFixed(2)}→${pb.heritage.toFixed(2)}, AI ${pa.ai.toFixed(2)}→${pb.ai.toFixed(2)})`);
+  ok(A.stance === "human" && B.stance === "wild", "野生動物の回答は実際の方針状態にも反映される");
+  { const ms = A.seen.findIndex(x => x[0] === "modesel"); ok(ms > A.seen.findIndex(x => x[0] === "q_mission") && ms === A.seen.length - 1 && A.seen[ms][1] === 2099, "進行モードの選択は最後の質問(2099年、終活開始の直前)"); }
+  for (const m of ["manual", "semi", "auto"]) { const R = run({ modesel: m }); ok(R.q.mode === m, `最後の質問で『${E.MODES[m]}』を選ぶとその進行モードになる`); }
+  const R = run({ modesel: "auto" }); R.q.pending = null; for (let i = 0; i < 400 && !R.q.ended && R.q.autoLog.length < 2; i++) E.tick(R.q); ok(R.q.autoLog.length >= 1 && /重視する価値観/.test(R.q.autoLog[0].why), "完全自動は形成された価値観で判断し、既存の判断エンジンを再利用する");
+  const P = await import("../js/picto.js");
+  const s0 = JSON.stringify(A.q), items = P.assess(A.q), counts = ["min", "std", "full"].map(d => P.visible(items, d).length);
+  ok(items.length === 16 && JSON.stringify(A.q) === s0, "ピクトグラム16種を算出し、状態は変化しない(表示はシミュレーションに影響しない)");
+  ok(counts[0] <= counts[1] && counts[1] <= counts[2] && counts[2] === 16, `表示密度 最小限${counts[0]} ≤ 標準${counts[1]} ≤ 詳細${counts[2]}`);
+  const q = E.newGame(3); while (q.year < 2110) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); }
+  const lvl = k => P.assess(q).find(x => x.k === k).level;
+  for (const f of q.facs) if (f.t === 0 && f.st === 0) f.safety = .9; ok(lvl("nuc") === "ok", "原子力: 余裕が十分なら安全(緑)");
+  q.facs.filter(f => f.t === 0 && f.st === 0).slice(0, 3).forEach(f => f.safety = .1); ok(lvl("nuc") === "warn", "余裕の低い原子炉が少数なら注意(黄)");
+  q.facs.filter(f => f.t === 0 && f.st === 0).forEach(f => f.safety = .1); ok(lvl("nuc") === "bad", "多数なら危険(赤)");
+  q.g.res = 20; ok(lvl("resource") === "bad", "資源が尽きかけると資源が危険(赤)"); q.g.res = 80; ok(lvl("resource") === "ok", "資源が十分なら安全(緑)");
+  q.countries[0].unrest = .9; ok(P.countryIssues(q, 0).some(x => x.k === "unrest" && x.level === "bad"), "国の社会不安が高いとその国に危険ピクトグラム");
+  const mk = d => P.mapMarkers(q, d).length; ok(mk("min") <= mk("std") && mk("std") <= mk("full") && mk("min") >= 1, `地図マーカー(集約) 最小限${mk("min")} ≤ 標準${mk("std")} ≤ 詳細${mk("full")}`);
+  const ch = P.resultChips({ pop: 0, happy: 3.2, safety: -5, env: 0, res: -3, ai: 0, her: .2 }); ok(ch.length === 3 && ch.find(c => c.k === "nuc").v === -5, "判断結果は実際の指標差分から作る(存在しない影響値は出さない)");
+}
+
 console.log(fail ? `\n失敗 ${fail} 件` : "\nすべて成功");
 process.exit(fail ? 1 : 0);

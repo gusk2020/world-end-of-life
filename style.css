@@ -103,3 +103,28 @@ details{border:1px solid var(--line);margin:6px 0;padding:4px 8px}summary{min-he
 .go{width:100%;min-height:54px;font-size:16px;background:var(--soft);border:2px solid var(--acc)}.go:disabled{opacity:.4}
 .box .link{min-height:44px}
 .r1 .tag{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}#themes{flex:0 0 auto}
+
+/* 第6次: 地図+レーダー、ピクトグラム */
+#mainstat{display:flex;gap:6px;margin:4px 0;align-items:stretch}
+#radarbox{flex:0 0 52%;max-width:52%;border:1px solid var(--line);padding:2px;min-width:0}#radarbox .radar{display:block;width:100%;height:auto;max-height:150px}
+#pictobox{flex:1;min-width:0;border:1px solid var(--line);padding:3px 4px}
+.pbh{display:flex;align-items:center;gap:4px;font-size:12px}.pgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;margin:2px 0}
+.pi{display:flex;flex-direction:column;align-items:center;min-height:44px;padding:1px 0;border-radius:3px;font-size:9px;line-height:1.1;gap:0}.pi span{white-space:nowrap}
+.pdet{min-height:30px;line-height:1.25;font-size:10.5px}
+.pdens{margin-top:2px}.pdens button{min-height:36px;font-size:11px;padding:2px 0}
+.pico{flex:0 0 auto;vertical-align:middle}.pico .ic{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;text-shadow:none}
+.pico .bg{fill:#000;stroke:currentColor;stroke-width:1.4}.pico .bm{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.lv-ok{color:#3ddc84}.lv-warn{color:#ffd23f}.lv-bad{color:#ff5555}
+.pi.lv-ok,.pi.lv-warn,.pi.lv-bad{border:1px solid currentColor;background:var(--bg)}.pi.lv-ok{border-color:var(--line)}.pi span{color:var(--acc)}
+.pbh.lv-ok b,.pbh.lv-warn b,.pbh.lv-bad b{color:inherit}
+#pmarks .pico{pointer-events:auto;cursor:pointer;overflow:visible}.pmn{fill:#fff;text-shadow:none;pointer-events:none}
+@media (prefers-reduced-motion:no-preference){.pi.lv-bad .ic{animation:pblink 2.4s ease-in-out 3}}@keyframes pblink{50%{opacity:.45}}
+.pcard{display:flex;flex-direction:column;gap:2px;margin-top:6px}.pcr{display:flex;gap:6px;align-items:center;font-size:12px}.pcr span:last-child{color:#fff;text-shadow:none}
+#resbar{position:fixed;left:0;right:0;bottom:calc(52px + env(safe-area-inset-bottom) + var(--obsh,0px));z-index:11;background:rgba(0,0,0,.94);border-top:1px solid var(--line);padding:4px 10px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+#resbar[hidden]{display:none}.rc{display:inline-flex;align-items:center;gap:2px;font-size:12px;border:1px solid currentColor;padding:0 4px;border-radius:3px}.rc.up{color:#3ddc84}.rc.dn{color:#ff5555}
+#preludeline{margin:2px 0}#preludeline[hidden]{display:none}
+#tabs button[hidden]{display:none}
+
+#afterbox{margin:4px 0}#afterbox[hidden]{display:none}#mainstat[hidden]{display:none}.big-t{margin:4px 0;font-size:15px}
+.abar{display:grid;grid-template-columns:6.5em 1fr 2.2em;gap:6px;align-items:center;font-size:12px}.abar .bar{margin:0}.abar b{font-weight:400;text-align:right}
+.alog .log{font-size:12.5px}.alog .log b{margin-right:6px}

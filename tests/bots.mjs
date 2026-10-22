@@ -1,8 +1,8 @@
 // 自動プレイ用ボット。選択イベントの答えと、2100年以降の方針を戦略ごとに定義する。
 import { PRESETS } from "../js/engine.js";
 
-const NEWDEF = { heritage_review: "select", citydecline: "consolidate", lastschool: "keep", farewell: "festival" };
-const pick = (map, dflt) => (s, p) => { const want = ({ ...NEWDEF, ...map })[p.id]; return p.choices.some(c => c.id === want) ? want : (dflt ? (p.choices.find(c => c.id === dflt) || p.choices[0]).id : p.choices[0].id); };
+const NEWDEF = { heritage_review: "select", citydecline: "consolidate", lastschool: "keep", farewell: "festival", q_liberty: "balance", q_research: "careful", q_nature: "both", q_wild: "balance", q_heritage: "record", q_coop: "consent", q_mission: "stop" };
+const pick = (map, dflt) => (s, p) => { if (p.id === "modesel") return s.mode || "manual"; const want = ({ ...NEWDEF, ...map })[p.id]; return p.choices.some(c => c.id === want) ? want : (dflt ? (p.choices.find(c => c.id === dflt) || p.choices[0]).id : p.choices[0].id); };
 
 export const BOTS = {
   // 理想: 倫理重視・合意・段階的開示・最後まで寄り添って全停止
@@ -49,6 +49,12 @@ BOTS.humanfirst = { ...BOTS.ideal, choices: over({ wild_protect: "human", wild_l
   policy: { research: 8, care: 22, decom: 35, stop: 8, eco: 9, heritage: 10, wild: 0 }, stance: "limit", wildStance: "human" };
 BOTS.machine_bare = { ...BOTS.machine, choices: (s, p) => (p.id === "astro_core" ? "shrink" : BOTS.machine.choices(s, p)), policy: { research: 0, care: 40, decom: 15, stop: 0, eco: 25, heritage: 20 } };
 
+// 第6次: 助走期間の質問への回答で、戦略ごとの価値観を作る
+const tweak = (name, map) => { const f = BOTS[name].choices; BOTS[name].choices = (s, p) => (map[p.id] && p.choices.some(c => c.id === map[p.id]) ? map[p.id] : f(s, p)); };
+tweak("machine", { q_research: "deep", q_mission: "persist", q_nature: "people" });
+tweak("tyrant", { q_liberty: "safe", q_coop: "central" });
+tweak("legacy", { q_heritage: "keep" }); tweak("perfect", { q_heritage: "keep", q_nature: "nature" });
+tweak("selfish", { q_mission: "conditional" }); tweak("chaos", { q_liberty: "free", q_coop: "leave", q_mission: "persist" });
 // 第5次: 戦略の幅(それぞれ異なる利益と代償を持つ)
 const over2 = (map, b) => (s, p) => (p.choices.some(c => c.id === map[p.id]) ? map[p.id] : b.choices(s, p));
 BOTS.runaway = { ...BOTS.machine, choices: (s, p) => (p.id === "final" ? "ask" : BOTS.machine.choices(s, p)) };          // 機械に任せて最後は去る
