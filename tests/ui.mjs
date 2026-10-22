@@ -203,6 +203,7 @@ await p.click("#modechip"); ok(await p.evaluate(() => window.__game.S.mode) === 
 ok(await p.evaluate(() => window.__game.S.log.some(l => l.k === "auto")), "自動判断の理由と結果がログに残る");
 
 console.log("\n■ 判断の見込み・方針の差分・遺産・状況");
+await p.evaluate(() => { const g = window.__game; if (!g.paused) g.togglePause(); document.getElementById("modal").hidden = true; g.S.pending = null; });
 await p.evaluate(() => window.__game.setSpeed(1));
 await p.click("#tabs [data-t=status]"); await p.waitForTimeout(400);
 ok((await p.textContent("#status")).includes("ボトルネック"), "状況タブにボトルネックと原因");
@@ -274,6 +275,22 @@ console.log("\n■ 観察フェーズ(第4次改修)");
   await p.evaluate(() => { const g = window.__game; g.S.mode = "manual"; g.session.startObserve(); });
   await p.click("#tabs [data-t=sys]"); await p.click("[data-sv='1']"); await p.click("[data-ld='1']"); await p.waitForTimeout(250);
   ok(await p.evaluate(() => !window.__game.session.observing && window.__game.S.holdAuto === false && window.__game.paused), "観察中のセーブ→ロードで観察は破棄され、一時停止で再開");
+}
+
+console.log("\n■ 第5次: 停止の順序・新規イベント");
+{
+  await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (!g.paused) g.togglePause(); g.settings.observe.sec = 0; });
+  await p.click("#tabs [data-t=policy]"); await p.waitForTimeout(200);
+  ok(await p.locator("[data-do]").count() === 3, "方針タブに停止の順序(危険度順/AI施設を先に/軍事を先に)がある");
+  await p.click("[data-do=mil]"); await p.click("#apply");
+  ok(await p.evaluate(() => window.__game.S.decomOrder) === "mil", "停止の順序を適用できる");
+  { const ov = await over(); if (ov > 0) console.log(await p.evaluate(() => [...document.querySelectorAll("body *")].filter(e => e.getBoundingClientRect().right > document.documentElement.clientWidth + 1).slice(0, 4).map(e => e.tagName + "#" + e.id + "." + e.className))); ok(ov <= 0, "方針タブは360pxで横あふれしない"); }
+  // 状態に連動する新規イベントのモーダル
+  await p.evaluate(() => { const g = window.__game, S = g.S; S.year = Math.max(S.year, 2110); S.coop = .5; delete S.flags.minorY; delete S.done.scarcity; S.pending = null; S.holdAuto = false; g.E.checkEvents(S); g.refresh(true); if (g.paused) g.togglePause(); });
+  await p.waitForSelector("#modal:not([hidden]) #go", { timeout: 4000 });
+  const ev = await p.evaluate(() => ({ title: document.querySelector("#modal h2").textContent, id: window.__game.S.pending.id, over: document.querySelector("#modal .box").scrollWidth - document.querySelector("#modal .box").clientWidth, opts: document.querySelectorAll("#modal .opt").length }));
+  ok(ev.id !== undefined && ev.over <= 0 && ev.opts >= 2, `状態連動イベント『${ev.title}』が360pxで崩れず表示される(選択肢${ev.opts})`);
+  await p.evaluate(() => { document.getElementById("modal").hidden = true; window.__game.S.pending = null; });
 }
 
 console.log("エラー:", errs.length ? errs : "なし"); ok(errs.length === 0, "ページエラーなし");

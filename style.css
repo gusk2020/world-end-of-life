@@ -102,3 +102,4 @@ details{border:1px solid var(--line);margin:6px 0;padding:4px 8px}summary{min-he
 .gobar{position:sticky;bottom:calc(-12px - env(safe-area-inset-bottom));background:var(--bg);margin:6px -12px calc(-12px - env(safe-area-inset-bottom));padding:8px 12px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--acc)}
 .go{width:100%;min-height:54px;font-size:16px;background:var(--soft);border:2px solid var(--acc)}.go:disabled{opacity:.4}
 .box .link{min-height:44px}
+.r1 .tag{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}#themes{flex:0 0 auto}

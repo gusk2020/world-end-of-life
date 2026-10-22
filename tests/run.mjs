@@ -131,7 +131,7 @@ console.log("\n■ 7. 遺産・政策選択による分岐・見込み・ボト�
   const dd = I.diff(pv.rows[1].cur, pv.rows[1].alt);
   ok(Object.values(dd).some(v => Math.abs(v) > .3), "方針変更の見込みが現状維持と異なる: " + I.fmtDiff(dd));
   { const q = JSON.parse(JSON.stringify(base)); q.g.res = 12; q.year = 2020; const a = I.resCause(q); q.year = 2101; q.flags.ark = 1; q.g.arkYear = 0; const b = I.resCause(q); q.g.res = 90; const c = I.resCause(q);
-    ok(/12\/100/.test(a) && /危機的/.test(a) && /2100年までは/.test(a) && !/方舟/.test(a), "資源説明: 現在量と2100年前の扱い"); ok(/方舟計画/.test(b) && /配分: 施設停止\d+%/.test(b) && /内訳までは記録されていない/.test(b), "資源説明: 方舟・配分・断定しない注記"); ok(/支障は小さい/.test(c), "資源説明: 十分な資源の境界"); }
+    ok(/12\/100/.test(a) && /危機的/.test(a) && /2100年までは/.test(a) && !/方舟/.test(a), "資源説明: 現在量と2100年前の扱い"); ok(/方舟計画/.test(b) && /配分: 機械停止準備\d+%・施設停止・解体\d+%/.test(b) && /内訳までは記録されていない/.test(b), "資源説明: 方舟・配分・断定しない注記"); ok(/支障は小さい/.test(c), "資源説明: 十分な資源の境界"); }
   const bn = I.bottleneck(base); ok(bn.name && bn.cause.length > 10, `ボトルネックと原因を表示: ${bn.name} / ${bn.cause.slice(0, 30)}…`);
   ok(Object.keys(I.metrics(base)).length === 7, "7指標(人口・幸福・安全性・環境・資源・AI安定性・遺産保護)");
   const pend = E.newGame(6); while (!pend.pending) E.tick(pend); const pc = I.previewChoices(pend, 10);
@@ -349,6 +349,54 @@ console.log("\n■ 15. 観察フェーズ(UI状態とシミュレーション状
   ok(S3.autoLog.length === a0 + 1 && S3.autoLog[a0].id === "learn", "観察の終了後に、保留したイベントを順番どおり1件だけ自動処理(次の観察へ)");
   for (let i = 0; i < 3000 && S3.autoLog.filter(a => ["learn", "infra", "mil"].includes(a.id)).length < 3; i++) s3.frame(1 / 30, { paused: false, speed: 100, blocked: false });
   const ids = S3.autoLog.filter(a => ["learn", "infra", "mil"].includes(a.id)).map(a => a.id); ok(JSON.stringify(ids) === JSON.stringify(["learn", "infra", "mil"]), "連続して起きたイベントは重複・欠落・順序逆転なく処理される: " + ids.join(">"));
+}
+
+console.log("\n■ 16. 経済・資源・施設停止の相互依存(第5次)");
+{
+  const prep = () => { const q = E.newGame(5); while (q.year < 2102) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } q.pending = null; q.policy = { research: 0, care: 10, decom: 60, stop: 10, eco: 10, heritage: 5, wild: 5 }; return q; };
+  const prog = q => q.facs.reduce((p, f) => p + f.prog, 0);
+  const one = (mut) => { const q = prep(); const p0 = prog(q); if (mut) mut(q); q.noEvents = true; E.tick(q); return { dp: prog(q) - p0, q }; };
+  const base = one();
+  ok(base.dp > 0 && base.q.reach.every(r => r >= .45 && r <= 1.6), `基準: 解体が進む(+${base.dp.toFixed(1)})、実効力は0.45〜1.6`);
+  const lowSup = one(q => q.facs.forEach(f => { if (f.t === 0 || f.t === 2) f.st = 2; }));
+  ok(lowSup.dp < base.dp, `発電施設を先に全停止すると解体能力が落ちる(${base.dp.toFixed(1)}→${lowSup.dp.toFixed(1)})`);
+  const lowLogi = one(q => q.countries.forEach(c => c.logi = .15));
+  ok(lowLogi.dp < base.dp, `物流網が縮小すると解体が遅れる(${lowLogi.dp.toFixed(1)})`);
+  { const c0 = { sup: .5, logi: .9, m: 1, auto: 0 }, r = E.reachOf; ok(r({ ...c0, m: .3 }) < r(c0) && r({ ...c0, auto: .8 }) > r(c0), `技術者(維持率)が減ると解体の実効力が落ち、自動化が進むと補う(${r({ ...c0, m: .3 }).toFixed(2)} < ${r(c0).toFixed(2)} < ${r({ ...c0, auto: .8 }).toFixed(2)})`); }
+  const war = one(q => q.countries.forEach(c => c.unrest = .9));
+  ok(war.q.coop < .7 && war.dp < base.dp, `国家間の不安が大きいと配分が削られる(協力度${war.q.coop.toFixed(2)})`);
+  const core = one(q => { q.g.coreFail = .9; });
+  ok(core.dp < base.dp, `AIコアの故障で自動化設備が使えず解体が遅れる(${core.dp.toFixed(1)})`);
+  const r0 = prep(), r1 = prep(); for (const q of [r0, r1]) { q.noEvents = true; q.policy.decom = 0; } r0.g.mach = 0; r1.g.mach = 100; E.tick(r0); E.tick(r1);
+  ok(r1.g.res < r0.g.res, `機械の増産は短期には資源を消費(${r0.g.res.toFixed(2)}→${r1.g.res.toFixed(2)})`);
+  const ordRun = o => { const q = prep(); q.decomOrder = o; for (let i = 0; i < 60; i++) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); q.policy = { research: 0, care: 10, decom: 60, stop: 10, eco: 10, heritage: 5, wild: 5 }; } return { ai: q.facs.filter(f => f.t === 4 && f.st < 2).length, all: q.facs.filter(f => f.st < 2).length, mil: q.facs.filter(f => f.t === 3 && f.st < 2).length, mach: q.g.mach }; };
+  const oh = ordRun("hazard"), oa = ordRun("ai"), om = ordRun("mil");
+  ok(oa.ai < oh.ai && oa.mach < oh.mach, `停止順序で結果が変わる: AI施設を先に止めると機械文明が育たない(AI稼働 ${oh.ai}→${oa.ai}, 機械の自律度 ${oh.mach.toFixed(1)}→${oa.mach.toFixed(1)})`);
+  ok(om.mil < oh.mil, `軍事を先に止める順序では軍事施設が早く減る(${oh.mil}→${om.mil})`);
+  const old = E.newGame(2); delete old.decomOrder; const mg = JSON.parse(JSON.stringify(old)); E.migrate ? E.migrate(mg) : 0; ok(!E.migrate || mg.decomOrder === "hazard", "古いセーブ(順序なし)は危険度順として読み込める");
+  const res = (() => { const q = prep(); let mx = 0; for (let i = 0; i < 80; i++) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); mx = Math.max(mx, q.g.res); } return [mx <= 100, q.g.res >= 0]; })(); ok(res[0] && res[1], "資源は0〜100の範囲で保存される");
+}
+
+console.log("\n■ 17. 状態に連動するイベント(第5次)");
+{
+  const prep = () => { const q = E.newGame(6); while (q.year < 2110) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } q.pending = null; for (const e of E.EVENTS) if (e.minor) delete q.done[e.id]; delete q.flags.minorY; return q; };
+  const fire = (q, id) => { q.pending = null; E.checkEvents(q); return q.pending && q.pending.id === id ? q.pending : null; };
+  const hasAll = id => E.EVENTS.find(e => e.id === id).ch.length === 3;
+  ok(["decomstall", "lasthospital", "isolation", "scarcity", "opposition"].every(hasAll), "新規イベント5種は3択で定義されている");
+  let q = prep(); q.reach = q.countries.map(() => 1); ok(!fire(q, "decomstall"), "解体が順調なら『解体の停滞』は起きない");
+  q = prep(); q.reach = q.countries.map(() => 1); q.reach[0] = .5; q.countries[0].logi = .1; const ds = fire(q, "decomstall"); ok(ds && /物流/.test(ds.body) && /0\.50/.test(ds.body), "解体の実効力が低い国で起き、本文に主因(物流)と数値が入る: " + (ds && ds.body));
+  const lg = q.countries[0].logi, p0 = q.facs.reduce((a, f) => a + f.prog, 0); E.choose(q, "support"); ok(q.countries[0].logi > lg && q.facs.reduce((a, f) => a + f.prog, 0) > p0, "支援を選ぶと物流と解体が前進する");
+  q = prep(); ok(!fire(q, "lasthospital"), "人口が十分なら『最後の病院』は起きない"); const c = q.countries[0]; c.y *= .1; c.a *= .1; c.o *= .1; const lh = fire(q, "lasthospital"); ok(!!lh && lh.body.includes(c.name), "人口が3割未満の国で『最後の病院』が起きる");
+  q = prep(); q.countries.forEach(c => c.happy = .8); ok(!fire(q, "isolation"), "幸福が高ければ『孤立する人々』は起きない");
+  q = prep(); q.countries.forEach(c => c.happy = .3); q.countries.forEach(c => { c.y *= .05; c.a *= .05; c.o *= .05; q.flags["hosp:" + c.id] = 1; }); ok(!!fire(q, "isolation"), "幸福が低く人が減ると『孤立する人々』が起きる");
+  q = prep(); q.coop = .5; ok(!!fire(q, "scarcity"), "国家間の協力度が低いと『資源をめぐる対立』が起きる");
+  q = prep(); q.countries[0].consent = .2; q.countries[0].unrest = .6; const op = fire(q, "opposition"); ok(!!op && op.body.includes(q.countries[0].name), "合意が低く不安が高い国で『終活への反対運動』が起きる");
+  const cs = q.countries[0].consent; E.choose(q, "dialog"); ok(q.countries[0].consent > cs, "対話を選ぶと合意が育つ");
+  q = prep(); q.coop = .5; fire(q, "scarcity"); E.choose(q, "stay"); q.countries[0].consent = .2; q.countries[0].unrest = .6; q.pending = null; E.checkEvents(q); ok(!q.pending || !["opposition", "decomstall", "lasthospital", "isolation", "scarcity"].includes(q.pending.id), "小規模イベントは8年間は続けて起きない(頻発の抑制)");
+  q.year += 9; q.pending = null; E.checkEvents(q); ok(q.pending && q.pending.id === "opposition", "間隔を空ければ次の出来事が起きる");
+  q = prep(); q.mode = "auto"; q.coop = .5; fire(q, "scarcity"); const n0 = q.autoLog.length; E.resolveAutoNow(q); ok(q.autoLog.length === n0 + 1 && q.autoLog[n0].why.length > 10, "完全自動でも新規イベントを価値観に基づき判断し、理由を記録する");
+  // 旧セーブ互換: minorY・decomOrder・reach・coop・sup が無くても動く
+  q = prep(); delete q.flags.minorY; delete q.reach; delete q.coop; delete q.decomOrder; q.countries.forEach(c => delete c.sup); let thrown = false; try { for (let i = 0; i < 40; i++) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } } catch (e) { thrown = true; } ok(!thrown, "新しい派生値が無い古いセーブでも継続できる");
 }
 
 console.log(fail ? `\n失敗 ${fail} 件` : "\nすべて成功");

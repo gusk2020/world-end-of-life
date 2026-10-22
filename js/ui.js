@@ -219,8 +219,8 @@ function statusView() {
 const CH_NOTE = { research: "短期:効果は薄い/長期:方舟の可能性とAIコアの遮蔽/時間差:数十年", care: "短期:幸福と希望が上がる/長期:穏やかな最期、出生の持ち直しにも寄与/副作用:資源を消費", decom: "短期:危険施設が減る/長期:事故の根を断つ/時間差:年単位で進む", stop: "短期:見えにくい/長期:機械を止められる/時間差:数十年", eco: "短期:緩やか/長期:自然の回復を早める", heritage: "短期:資源消費/長期:遺産が残る", wild: "短期:野生の福祉と生息地が改善/長期:絶滅を遅らせる(避けられない)/副作用:人類の終活に使える資源が減る" };
 const MODE_DESC = { manual: "重要イベントごとに停止し、あなたが選ぶ。", semi: "国家・地域の人口減少に伴う縮退対応(都市の縮退・国家運営の委任・最後の学校・最後の街)だけ自動。それ以外は停止。", auto: "原則すべてのイベントと配分をAIが自動処理。理由と結果はログと「自動判断」に残る。" };
 function sumP(p) { return Math.max(1, Object.values(p).reduce((a, b) => a + (b || 0), 0)); }
-function ensureDraft() { if (!draft) draft = { policy: { ...S.policy }, sovMode: S.sovMode, machStance: S.machStance, focus: S.ai.focus, wildStance: S.wildStance }; }
-const dirty = () => draft && (JSON.stringify(draft.policy) !== JSON.stringify(S.policy) || draft.sovMode !== S.sovMode || draft.machStance !== S.machStance || draft.focus !== S.ai.focus || draft.wildStance !== S.wildStance);
+function ensureDraft() { if (!draft) draft = { policy: { ...S.policy }, sovMode: S.sovMode, machStance: S.machStance, focus: S.ai.focus, wildStance: S.wildStance, decomOrder: S.decomOrder || "hazard" }; }
+const dirty = () => draft && (JSON.stringify(draft.policy) !== JSON.stringify(S.policy) || draft.sovMode !== S.sovMode || draft.machStance !== S.machStance || draft.focus !== S.ai.focus || draft.wildStance !== S.wildStance || draft.decomOrder !== (S.decomOrder || "hazard"));
 function prefBars() {
   const { vec, n, lam } = E.prefProfile(S);
   return `<div class="kv">${Object.entries(E.VALUE_NAMES).map(([k, nm]) => `<span>${nm}</span><span>${vec[k].toFixed(2)}</span>`).join("")}</div><div class="small">2020〜2100年の判断${n}件から数値化。${lam < .5 ? `判断が少ないため、既定の初期方針(尊厳${E.DEFAULT_PREF.dignity}・安全${E.DEFAULT_PREF.safety}・AI存続${E.DEFAULT_PREF.ai}など)を${Math.round((1 - lam) * 100)}%併用。` : "自動判断の基準になります。"}</div>`;
@@ -235,6 +235,7 @@ function policyView() {
   <div class="small">野生優先: 生息地と生態系は守れるが、人類の幸福と資源を圧迫する。人類優先: 逆。どちらでも大型哺乳類の絶滅は避けられないが、最期までの福祉と時間が変わる。</div>
   <h3>停止の進め方</h3><div class="seg"><button data-sov="consent" class="${draft.sovMode === "consent" ? "on" : ""}">合意に基づく</button><button data-sov="override" class="${draft.sovMode === "override" ? "on" : ""}">強制停止</button></div>
   <div class="small">強制:短期は安全が早まる/長期は主権・信頼・社会の安定を損なう。</div>
+  <h3>停止の順序</h3><div class="seg">${Object.entries(E.DECOM_ORDERS).map(([k, n]) => `<button data-do="${k}" class="${draft.decomOrder === k ? "on" : ""}">${n}</button>`).join("")}</div><div class="small">${{ hazard: "危険な施設から止める。発電も早く止まり、後の解体が遅くなる", ai: "AI施設を先に止める。機械が増えにくいが、解体を補う自動化も弱まる", mil: "軍事施設を先に止める。紛争の火種を減らす" }[draft.decomOrder]}</div>
   <h3>機械文明の方針</h3><div class="seg">${[["limit", "抑制"], ["std", "標準"], ["expand", "拡大"]].map(([k, n]) => `<button data-st="${k}" class="${draft.machStance === k ? "on" : ""}">${n}</button>`).join("")}</div>
   <div class="small">機械は施設の維持を担うが、増えるほど停止が難しい。新造は製造枠で制限され、コアは複製できない。コアの故障を補う力は方針で変わる(抑制では絞られる)。</div>
   <h3>AIの学習方針</h3><div class="seg">${[["ethics", "倫理"], ["world", "観測"], ["tech", "技術"]].map(([k, n]) => `<button data-f="${k}" class="${draft.focus === k ? "on" : ""}">${n}</button>`).join("")}</div>
@@ -245,10 +246,11 @@ function policyView() {
   q("input[type=range]", r => { r.oninput = () => { draft.policy[r.dataset.k] = +r.value; const s2 = sumP(draft.policy); for (const [k] of E.CHANNELS) $("pv_" + k).textContent = ((draft.policy[k] || 0) / s2 * 100).toFixed(0) + "%"; }; r.onchange = () => policyView(); });
   q("[data-pre]", b => b.onclick = () => { draft.policy = { ...E.PRESETS[b.dataset.pre] }; policyView(); });
   q("[data-sov]", b => b.onclick = () => { draft.sovMode = b.dataset.sov; policyView(); });
+  q("[data-do]", b => b.onclick = () => { draft.decomOrder = b.dataset.do; policyView(); });
   q("[data-st]", b => b.onclick = () => { draft.machStance = b.dataset.st; policyView(); });
   q("[data-f]", b => b.onclick = () => { draft.focus = b.dataset.f; policyView(); });
   q("[data-ws]", b => b.onclick = () => { draft.wildStance = b.dataset.ws; policyView(); });
-  $("apply").onclick = () => { S.policy = { ...draft.policy }; S.sovMode = draft.sovMode; S.machStance = draft.machStance; S.ai.focus = draft.focus; S.wildStance = draft.wildStance; S.lastChoice = { title: "方針の変更", label: "新しい配分を適用", diff: "反映はこれから(時間差あり)" }; E.addLogPublic(S, "【方針】配分・停止の進め方・土地の分け方を変更した。", "choice"); policyView(); head(); };
+  $("apply").onclick = () => { S.policy = { ...draft.policy }; S.sovMode = draft.sovMode; S.machStance = draft.machStance; S.ai.focus = draft.focus; S.wildStance = draft.wildStance; S.decomOrder = draft.decomOrder; S.lastChoice = { title: "方針の変更", label: "新しい配分を適用", diff: "反映はこれから(時間差あり)" }; E.addLogPublic(S, "【方針】配分・停止の進め方・土地の分け方を変更した。", "choice"); policyView(); head(); };
   $("revert").onclick = () => { draft = null; policyView(); };
   if (dirty()) setTimeout(() => {
     if (tab !== "policy" || !$("pvbox")) return;

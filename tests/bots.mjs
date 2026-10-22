@@ -49,9 +49,17 @@ BOTS.humanfirst = { ...BOTS.ideal, choices: over({ wild_protect: "human", wild_l
   policy: { research: 8, care: 22, decom: 35, stop: 8, eco: 9, heritage: 10, wild: 0 }, stance: "limit", wildStance: "human" };
 BOTS.machine_bare = { ...BOTS.machine, choices: (s, p) => (p.id === "astro_core" ? "shrink" : BOTS.machine.choices(s, p)), policy: { research: 0, care: 40, decom: 15, stop: 0, eco: 25, heritage: 20 } };
 
+// 第5次: 戦略の幅(それぞれ異なる利益と代償を持つ)
+const over2 = (map, b) => (s, p) => (p.choices.some(c => c.id === map[p.id]) ? map[p.id] : b.choices(s, p));
+BOTS.runaway = { ...BOTS.machine, choices: (s, p) => (p.id === "final" ? "ask" : BOTS.machine.choices(s, p)) };          // 機械に任せて最後は去る
+BOTS.reboot = { ...BOTS.ark, choices: (s, p) => (p.id === "final" ? "care" : BOTS.ark.choices(s, p)) };                      // 方舟+管理者として残る
+BOTS.keeper = { ...BOTS.caretaker, choices: over2({ heritage_review: "protect", heritage: "physical", lead: "archive", lastschool: "archive" }, BOTS.caretaker), policy: { research: 0, care: 5, decom: 38, stop: 5, eco: 5, heritage: 55, wild: 0 } };
+BOTS.early = { ...BOTS.tyrant, choices: (s, p) => (p.id === "final" ? "after" : p.id === "selfpres" ? "publish" : BOTS.tyrant.choices(s, p)), policy: { research: 0, care: 0, decom: 10, stop: 10, eco: 5, heritage: 5, wild: 0 } };
+BOTS.aifirst = { ...BOTS.ideal, order: "ai" };
+BOTS.milfirst = { ...BOTS.ideal, order: "mil" };
 export function applyBot(s, bot) {
   if (s.year < 2100) return;
-  if (!s.flags.__botSet) { s.flags.__botSet = 1; s.policy = { ...bot.policy }; s.machStance = bot.stance; if (bot.wildStance) s.wildStance = bot.wildStance; }
+  if (!s.flags.__botSet) { s.flags.__botSet = 1; s.policy = { ...bot.policy }; s.machStance = bot.stance; if (bot.wildStance) s.wildStance = bot.wildStance; if (bot.order) s.decomOrder = bot.order; }
   if (s.year >= 2100 && s.sovMode !== bot.sov && !s.flags.__sov) { s.flags.__sov = 1; s.sovMode = bot.sov; }
   // 施設が残っている間は機械による維持が必要。ほぼ封鎖したら抑制に切り替える
   if (bot.stance === "limit" && s.year % 5 === 0) {
