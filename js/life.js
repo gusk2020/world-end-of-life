@@ -42,9 +42,9 @@ export function stepAstro(s, add) {
     const ph = a.lull > .5 ? "lull" : a.peak > .6 ? "peak" : "mid";
     if (ph !== g.astroPhase) {
       const prev = g.astroPhase; g.astroPhase = ph;
-      if (ph === "peak") { g.surge += .2; add(`【天文・創作仮説】放射が強まる活発期に入った。AIコアの故障と生物の出生の減少が増える。人々の絶望は深まりやすい。`); }
-      else if (ph === "lull" && prev) add(`【天文・創作仮説】放射が弱まる静穏期に入った。生活が安定し希望が残る地域では、出生率が持ち直し、人口の減少が止まることがある(終活支援・幸福・資源が条件)。`);
-      else if (ph === "mid" && prev) add(`【天文・創作仮説】${prev === "lull" ? "静穏期が終わり、放射は再び強まりはじめた。" : "活発期が過ぎ、放射はやや落ち着いた。"}`);
+      if (ph === "peak") { g.surge += .2; add(`【天文】放射が強まる活発期に入った。AIコアの故障と生物の出生の減少が増える。人々の絶望は深まりやすい。`); }
+      else if (ph === "lull" && prev) add(`【天文】放射が弱まる静穏期に入った。生活が安定し希望が残る地域では、出生率が持ち直し、人口の減少が止まることがある(終活支援・幸福・資源が条件)。`);
+      else if (ph === "mid" && prev) add(`【天文】${prev === "lull" ? "静穏期が終わり、放射は再び強まりはじめた。" : "活発期が過ぎ、放射はやや落ち着いた。"}`);
     }
   }
   g.astro = clamp(a.base + a.osc + g.surge, 0, 1.8);

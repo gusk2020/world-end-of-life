@@ -3,7 +3,7 @@
 import * as E from "./engine.js";
 import { GROUPS } from "./life.js";
 
-export const STEP = 25, HORIZON0 = 5000, HORIZON_MAX = 20000;
+export const STEP = 25;
 export const BRANCH = { A: "自然への回帰", B: "AIによる地球管理", C: "別の存在への継承", D: "混合・予想外の未来" };
 const clamp = (x, a, b) => x !== x ? a : x < a ? a : x > b ? b : x;
 const ALIEN = "異星人";
@@ -33,7 +33,7 @@ export function startAfter(s) {
   const w = GROUPS.reduce((o, G, i) => { if (G.wild) { o.a += s.mam[i].n; o.a0 += G.n0; } return o; }, { a: 0, a0: 0 });
   const mamRatio = w.a0 ? w.a / w.a0 : 0;
   const f0 = {}; const mv = mean(veg), mp = mean(pl); if (mv > 50) f0.v50 = -1; if (mv > 75) f0.v75 = -1; if (mp < 15) f0.p15 = -1; f0.her0 = g.her;
-  return { v: 1, t: 0, horizon: HORIZON0, branch: br.branch, ai: br.ai, succ: br.succ, copy: br.copy, end: e.id, kind: e.kind, observer: e.observer, aiStopped: !sc.ai,
+  return { v: 1, t: 0, stable: false, branch: br.branch, ai: br.ai, succ: br.succ, copy: br.copy, end: e.id, kind: e.kind, observer: e.observer, aiStopped: !sc.ai,
     city, veg, pl, ind, aiShare, mamRatio, mamGap: mamRatio < .3, mach: clamp(sc.mach / 100, 0, 1) * (br.copy ? .05 : 1) + (br.ai && sc.mach <= 25 ? .15 : 0), her: g.her, scar: g.scar,
     bio: { birds: 20, reptiles: 20, insects: 25, plants: 30 }, human: 0, alienAt: null, wakeAt: br.copy ? 400 : null, arrive: br.succ === "alien" ? Math.round(450 + (100 - g.bio) * 8 + g.pl * 4) : br.succ === "revival" ? 60 : br.succ === "system" ? 800 : null,
     astro: g.astro || 0, flags: f0, log: [{ t: 0, text: logStart(s, br) }], seed: s.seed || 0 };
@@ -47,9 +47,12 @@ export function metricsAfter(a) {
   const pl = mean(a.pl), veg = mean(a.veg), city = mean(a.city);
   return { city, veg, pl, birds: a.bio.birds, reptiles: a.bio.reptiles, insects: a.bio.insects, plants: a.bio.plants, mach: a.mach * 100, her: a.her, human: a.human, ind: mean(a.ind) * 100 };
 }
+// 未来の出来事の追加口: { id, when(a), text(a), apply?(a) } を足すだけで、条件を満たしたときに一度だけ起きる(汎用の大きなイベントエンジンではない)
+export const AFTER_EVENTS = [];
 const note = (a, key, text) => { if (!a.flags[key]) { a.flags[key] = a.t; a.log.push({ t: a.t, text }); } };
 export function stepAfter(a) {
-  if (a.t >= a.horizon) return false;
+  if (a.stable) { a.t += STEP; return true; } // 変化が収束したあとは時間だけが進む(計算量は増えない)
+  const prev = snapshot(a);
   const P = PROFILE[a.end] || PROFILE.def, dt = STEP, t = a.t + dt, n = a.city.length, hasM = a.ai;
   // 機械文明: 失敗しながら活動が減る。休眠コアは決まった時刻に目覚める
   if (a.copy && a.wakeAt !== null && t >= a.wakeAt && !a.flags.wake) { a.mach = .3; note(a, "wake", `${t}年、休眠していたコアが目覚め、地球の観測を再開した。`); }
@@ -88,11 +91,22 @@ export function stepAfter(a) {
   if (b.insects > 70) note(a, "ins", `${t}年、昆虫と植物が地球を覆い、生態系は厚みを取り戻した。`);
   if (a.flags.her0 > 1 && a.her < a.flags.her0 * .5) note(a, "h50", `${t}年、文明遺産の半分が失われた。`);
   if (t % 1000 === 0 && t < 5000 && !a.flags["m" + t]) { a.flags["m" + t] = 1; a.log.push({ t, text: `${t}年: ${stateWord(a)}` }); }
-  a.t = t; return true;
+  a.t = t;
+  for (const ev of AFTER_EVENTS) if (!a.flags["e_" + ev.id] && ev.when(a)) { a.flags["e_" + ev.id] = t; a.log.push({ t, text: ev.text(a) }); if (ev.apply) ev.apply(a); }
+  sanitize(a); boundLog(a);
+  if (settled(prev, a)) { a.stable = true; a.log.push({ t, text: `${t.toLocaleString("en-US")}年、地球の変化は収束した。ここから先は、ほとんど同じ静かな時間が続く。` }); }
+  return true;
 }
+const snapshot = (a) => [mean(a.veg), mean(a.city), mean(a.pl), a.bio.birds + a.bio.reptiles + a.bio.insects + a.bio.plants, a.mach, a.human, a.her];
+function settled(p, a) { const q = snapshot(a); if (a.t < 1000) return false; if (a.mach > .01 || (a.succ === "alien" && a.alienAt === null) || (a.succ === "system" && !a.flags.audit) || (a.copy && !a.flags.wake)) return false; for (let k = 0; k < 4; k++) if (Math.abs(q[k] - p[k]) > 2e-3) return false; if (a.human > 0 && Math.abs(q[5] - p[5]) > Math.max(1, a.human * 1e-4)) return false; return true; }
+// 数値の健全性: NaN・Infinityを許さず、範囲に収める
+function sanitize(a) { for (const k of ["city", "veg", "pl", "ind"]) for (let i = 0; i < a[k].length; i++) a[k][i] = clamp(Number.isFinite(a[k][i]) ? a[k][i] : 0, 0, 100); for (const k in a.bio) a.bio[k] = clamp(a.bio[k], 0, 100); a.mach = clamp(a.mach, 0, 1); a.her = clamp(a.her, 0, 100); a.scar = clamp(a.scar, 0, 100); a.human = Number.isFinite(a.human) ? Math.max(0, Math.min(a.human, 5e9)) : 0; }
+// 年表は上限つき(最初の1行と最近の出来事だけを残す)
+function boundLog(a) { if (a.log.length > 60) a.log.splice(1, a.log.length - 60); }
 function stateWord(a) { const m = metricsAfter(a); return `都市${m.city.toFixed(0)}%・植生${m.veg.toFixed(0)}%・汚染${m.pl.toFixed(0)}。${a.human > 0 ? `復興人類 約${Math.round(a.human).toLocaleString("en-US")}人。` : ""}${a.mach > .01 ? "機械はまだ動いている。" : ""}`; }
-export function advanceTo(a, target) { let n = 0; while (a.t < Math.min(target, a.horizon) && stepAfter(a)) n++; return n; }
-export function extend(a) { if (a.horizon < HORIZON_MAX) a.horizon = Math.min(HORIZON_MAX, a.horizon + 5000); return a.horizon; }
+export function advanceTo(a, target) { let n = 0; while (a.t < target) { if (a.stable) { a.t = Math.max(a.t, target); break; } stepAfter(a); n++; } return n; }
+export function advanceBy(a, years, maxSteps = 400) { let n = 0; if (a.stable) { a.t += years; return 0; } let acc = years; while (acc >= STEP && n < maxSteps && !a.stable) { stepAfter(a); acc -= STEP; n++; } if (a.stable && acc > 0) a.t += acc; return n; }
+export function fmtYears(t) { return t >= 1e12 ? (t / 1e12).toFixed(1) + "兆年" : t >= 1e8 ? (t / 1e8).toFixed(1) + "億年" : t >= 1e4 ? (t / 1e4).toFixed(1) + "万年" : Math.round(t).toLocaleString("en-US") + "年"; }
 export function endText(a) { // 観測者の立場に整合した語り
   const m = metricsAfter(a);
   const lead = a.ai && !(a.copy && !a.flags.wake) ? "あなたは地球を見守り続けている。" : `記録の再生(${a.succ === "alien" ? "異星人" : a.succ === "system" ? "上位管理システム" : "外部視点"})。`;

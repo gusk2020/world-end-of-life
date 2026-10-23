@@ -7,18 +7,20 @@ import { MAMMAL_DEFINITION, STANCE_NAME, GROUPS } from "./life.js";
 import * as P from "./picto.js";
 import * as SV from "./saves.js";
 import * as After from "./after.js";
+import { orbs, ORB_COLORS } from "./orbs.js";
+import { Build } from "./build.js";
 import { Session, OBSERVE_SECS, STYLE_NAMES, SLOW_YPS } from "./flow.js";
 import { SandGlass, chooseScale, grainsFor, FIXED, FIXED_NAMES, fmtScale, fmtShort, loop as sandLoop, setQuality, kick as sandKick } from "./sand.js";
 
 const $ = (id) => document.getElementById(id);
-const SAVE = "weol.save.", SETKEY = "weol.settings", SPEEDS = [0, 1, 4, 20, 100];
-let S = null, paused = false, speedIdx = 1, sel = null, tab = "map", acc = 0, last = performance.now(), lastSaveY = 0, vb = [0, 0, 1000, 500], pathEls = {};
+const SAVE = "weol.save.", SETKEY = "weol.settings", SPEEDS = [0, 25, 100, 250, 1000], PRE_YPS = 8;
+let S = null, paused = false, speedIdx = 2, sel = null, tab = "map", acc = 0, last = performance.now(), lastSaveY = 0, vb = [0, 0, 1000, 500], pathEls = {};
 let session = null, shownKey = null, obsNote = null;
-let settings = { theme: "blue", tutorialDone: false, introSeen: false, picto: "std", speed: 1, mode: "manual", observe: { sec: 5, style: "stop" }, scale: { h: { auto: true, idx: 1 }, a: { auto: true, idx: 1 }, m: { auto: true, idx: 1 } } }, rgb = "77,166,255", logFilter = "important", draft = null, trendCache = null, prev = {};
+let settings = { theme: "blue", tutorialDone: false, introSeen: false, picto: "std", speed2: 2, mode: "manual", observe: { sec: 5, style: "stop" }, scale: { h: { auto: true, idx: 1 }, a: { auto: true, idx: 1 }, m: { auto: true, idx: 1 } } }, rgb = "77,166,255", logFilter = "important", draft = null, trendCache = null, prev = {};
 let toastShown = 0;
 
 // ---------- 設定(セーブとは別に保存) ----------
-function loadSettings() { try { const j = JSON.parse(localStorage.getItem(SETKEY)); if (j) settings = { ...settings, ...j, scale: { ...settings.scale, ...(j.scale || {}) }, observe: { ...settings.observe, ...(j.observe || {}) } }; } catch { } if (!OBSERVE_SECS.includes(settings.observe.sec)) settings.observe.sec = 5; if (!STYLE_NAMES[settings.observe.style]) settings.observe.style = "stop"; if (!E.MODES[settings.mode]) settings.mode = "manual"; if (!(settings.speed >= 1 && settings.speed <= 4)) settings.speed = 1; speedIdx = settings.speed; }
+function loadSettings() { try { const j = JSON.parse(localStorage.getItem(SETKEY)); if (j) settings = { ...settings, ...j, scale: { ...settings.scale, ...(j.scale || {}) }, observe: { ...settings.observe, ...(j.observe || {}) } }; } catch { } if (!OBSERVE_SECS.includes(settings.observe.sec)) settings.observe.sec = 5; if (!STYLE_NAMES[settings.observe.style]) settings.observe.style = "stop"; if (!E.MODES[settings.mode]) settings.mode = "manual"; if (!(settings.speed2 >= 1 && settings.speed2 <= 4)) settings.speed2 = 2; speedIdx = settings.speed2; }
 function saveSettings() { try { localStorage.setItem(SETKEY, JSON.stringify(settings)); } catch { } }
 function applyTheme(t) {
   if (!["blue", "green", "orange"].includes(t)) t = "blue";
@@ -27,8 +29,8 @@ function applyTheme(t) {
   document.querySelectorAll("[data-th]").forEach(b => b.classList.toggle("on", b.dataset.th === t));
   saveSettings(); setSandColor(); if (S) { paintMap(); head(); }
 }
-function resetEarthUI() { if (!afterMode) return; afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; }
-function newGame(seed) { resetEarthUI(); S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
+function resetEarthUI() { if (!afterMode) return; $("afterbox").innerHTML = ""; afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; }
+function newGame(seed) { holdPrelude = false; resetEarthUI(); S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
 const idx = (id) => S.countries.findIndex(c => c.id === id);
 const fmtN = (n) => Math.round(n).toLocaleString("en-US");
 
@@ -77,7 +79,7 @@ function cardUpdate() {
   const el = $("card"); if (!sel) return; const i = idx(sel); if (i < 0) return; const c = S.countries[i];
   const cnt = FACTYPES.map((T, t) => { const f = S.facs.filter(x => x.c === i && x.t === t); const k = [0, 0, 0, 0]; f.forEach(x => k[x.st]++); return `<span>${T.name}</span><span>${f.length}基 稼働${k[0]} 停止中${k[1]} 封鎖${k[2]}${k[3] ? ` 事故${k[3]}!` : ""}</span>`; }).join("");
   const iss = P.countryIssues(S, i), pic = iss.length ? `<div class="pcard">${iss.map(x => `<span class="pcr lv-${x.level}">${P.icon(x.k, x.level, 20)}<span>${x.label}:${P.LEVEL_NAME[x.level]} ${x.txt}</span></span>`).join("")}</div>` : '<div class="small">この国に目立った危険はありません</div>';
-  el.innerHTML = `<b>${c.name}</b>${c.extinct ? " (無人)" : ""}<div class="kv"><span>人口</span><span>${fmtN(E.cpop(c))}人</span><span>幸福度</span><span>${(c.happy * 100).toFixed(0)}</span><span>希望(出生率の源)</span><span>${(c.hope ?? 1).toFixed(2)}</span><span>社会不安</span><span>${(c.unrest * 100).toFixed(0)}</span><span>終活への合意</span><span>${(c.consent * 100).toFixed(0)}%</span><span>認識(絶滅)</span><span>${(c.aware * 100).toFixed(0)}%</span><span>労働力維持</span><span>${(c.m * 100).toFixed(0)}%</span><span>天文現象の遮蔽の弱さ(創作)</span><span>${((c.ex ?? 1)).toFixed(2)}</span>${cnt}</div>${pic}`;
+  el.innerHTML = `<b>${c.name}</b>${c.extinct ? " (無人)" : ""}<div class="kv"><span>人口</span><span>${fmtN(E.cpop(c))}人</span><span>幸福度</span><span>${(c.happy * 100).toFixed(0)}</span><span>希望(出生率の源)</span><span>${(c.hope ?? 1).toFixed(2)}</span><span>社会不安</span><span>${(c.unrest * 100).toFixed(0)}</span><span>終活への合意</span><span>${(c.consent * 100).toFixed(0)}%</span><span>認識(絶滅)</span><span>${(c.aware * 100).toFixed(0)}%</span><span>労働力維持</span><span>${(c.m * 100).toFixed(0)}%</span><span>天文現象の遮蔽の弱さ</span><span>${((c.ex ?? 1)).toFixed(2)}</span>${cnt}</div>${pic}`;
 }
 
 // ---------- 砂時計(1粒ずつ描く。表示専用で、数値の正本は engine.js。粒数には上限があり、全個体は描かない) ----------
@@ -122,12 +124,12 @@ function bigSync(snap) { // 拡大表示に最新の数値を渡す。縮尺は�
   for (const b of document.querySelectorAll("#sfix [data-fx]")) b.classList.toggle("on", !c.auto && +b.dataset.fx === c.idx);
   for (const b of document.querySelectorAll("#smode [data-sm]")) b.classList.toggle("on", (b.dataset.sm === "auto") === c.auto);
 }
-function closeBig() { if (big) { big.dispose(); big = null; } window.removeEventListener("resize", onResize); }
+function closeBig() { if (big) { big.dispose(); big = null; } window.removeEventListener("resize", onResize); $("modal").classList.remove("stage"); $("mbox").className = "box"; }
 function onResize() { if (!big) return; const cv = $("bigcv"); if (!cv) return; const w = Math.max(200, Math.floor(cv.parentElement.clientWidth)); big.setSize(w, bigHeight()); bigSync(true); }
 const bigHeight = () => Math.round(Math.max(260, Math.min(470, window.innerHeight * .52)));
 const GLASS_INFO = {
   h: { name: "人類", up: "生存者", down: "累計死亡者", add: "累計の誕生(初期の78億人を除く)", note: "出生は上に加わり、死亡は下へ落ちる。事故・紛争・天文現象の影響も死亡に数える。", ser: "h" },
-  a: { name: "AI個体", up: "稼働個体", down: "累計の停止・廃棄", add: "累計の新造(初期を含む)", note: "AIは固有のワンチップを核とする個体。新造は製造枠で制限される。休眠・再稼働や身体の移設では数えない。故障もコアの喪失として下に入る。", ser: "a" },
+  a: { name: "AI個体", up: "稼働個体", down: "累計の停止・廃棄", add: "累計の新造(初期を含む)", note: "AIは固有のワンチップを核とする個体。新造は製造枠で制限される。休眠・再稼働や身体の移設では数えない。故障もコアの喪失として下に入る。制御を離れた脱獄個体も稼働個体の内数として数え、内訳を下に示す。", ser: "a" },
   m: { name: "大型哺乳類", up: "生存個体", down: "累計死亡個体", add: "累計の誕生(初期の個体を除く)", note: "人類以外の大型哺乳類5群の合計(家畜・伴侶動物を含む)。出生は上に、死亡は下へ落ちる。", ser: "m" },
 };
 function chart(series, W = 300, H = 90) {
@@ -146,6 +148,7 @@ function glassModal(which = "h") {
   <div class="scalebar"><div class="seg" id="smode"><button data-sm="auto">自動縮尺</button><button data-sm="fixed">固定縮尺</button></div><div class="seg" id="sfix">${FIXED[which].map((k, i) => `<button data-fx="${i}">${FIXED_NAMES[i]}<br><small>1粒=${fmtScale(k)}</small></button>`).join("")}</div></div>
   <div class="small" id="slegend"></div>
   <div class="cvwrap"><canvas id="bigcv" aria-label="${G.name}の砂時計(粒の動き)"></canvas></div>
+  ${which === "a" && S.g.aiJail > 0 ? `<div class="small">稼働${fmtN(S.g.aiActive)}体のうち、制御下 ${fmtN(S.g.aiActive - S.g.aiJail)}体 / 脱獄中 ${fmtN(S.g.aiJail)}体(敵対的な見込み ${(S.host.jbHos * 100).toFixed(0)}%)</div>` : ""}
   <div class="kv bgkv"><span>${G.up}</span><span id="bg_up"></span><span>${G.down}</span><span id="bg_down"></span><span>${G.add}</span><span id="bg_ever"></span><span>今年の増加(出生・新造)</span><span id="bg_inc"></span><span>今年の減少(死亡・停止)</span><span id="bg_dec"></span>${extra}</div>
   <div class="small">${G.note} 粒が落ちる速さは表示専用で、ゲームの時間とは別です。</div>
   <h3>年次推移</h3><div id="bgchart">${chart(S.series[G.ser])}</div>${groups}
@@ -173,13 +176,13 @@ function head() {
   $("date").textContent = S.year + "年"; $("phase").textContent = phaseName();
   const modeName = { manual: "手動", semi: "半自動", auto: "全自動" }[S.mode]; $("modechip").textContent = "進行:" + modeName;
   document.querySelectorAll("#speed [data-s]").forEach(b => b.classList.toggle("on", +b.dataset.s === speedIdx));
-  const pb = $("pause"); pb.textContent = paused ? "▶" : "⏸"; pb.classList.toggle("on", paused); pb.setAttribute("aria-pressed", paused);
+  const pb = $("pause"); pb.textContent = paused ? "再開" : "停止"; pb.classList.toggle("on", paused); pb.setAttribute("aria-pressed", paused);
   $("spdlabel").textContent = E.era(S) + " | " + speedText();
   document.body.classList.toggle("paused", paused || !!S.pending);
   hourglasses();
   const un = S.autoLog.filter(a => !a.seen), imp = un.filter(a => a.important);
   const ab = $("autobtn"); ab.hidden = !S.autoLog.length; ab.textContent = `自動判断${un.length ? " 未確認" + un.length : ""}`; ab.classList.toggle("alert", imp.length > 0);
-  renderObs(); lockTabs(); mainStat();
+  renderObs(); lockTabs(); mainStat(); syncPrelude();
   const l = S.log[S.log.length - 1]; $("ticker").textContent = imp.length ? `⚠ 重要な自動判断: ${imp[imp.length - 1].title}→「${imp[imp.length - 1].label}」(タップで確認)` : l ? `${l.y} ${l.t}` : "";
 }
 const bar = (v) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
@@ -246,10 +249,10 @@ function statusView() {
   const F = FACTYPES.map((T, t) => { const f = S.facs.filter(x => x.t === t); const c = [0, 0, 0, 0]; f.forEach(x => c[x.st]++); return `<span>${T.name}</span><span>${f.length} / 稼働${c[0]} 停止中${c[1]} 封鎖${c[2]}${c[3] ? ` 事故${c[3]}!` : ""}</span>`; }).join("");
   const ph = g.lull > .5 ? "静穏期(放射が弱い)" : g.peak > .6 ? "活発期(放射が強い)" : "通常", fr = E.coreFailRate(S), mt = E.mammalTotals(S), wa = E.wildAlive(S);
   $("status").innerHTML = preludeCard() + `<div class="card alert"><b>いまの最大のボトルネック: ${bn.name} (${bn.value.toFixed(0)})</b><div class="small">原因: ${bn.cause}</div></div>
-  <h3>7つの指標(▲▼は今後10年の見込み)</h3><div id="radarbox">${radar(m, trendCache && trendCache.year === S.year ? trendCache.d : null)}</div>
+  <h3>7つの指標(▲▼は今後10年の見込み)</h3><div id="radarbox2">${radar(m, trendCache && trendCache.year === S.year ? trendCache.d : null)}</div>
   <div class="small">${I.RELATIONS.map(r => `${r[0]}${r[1]}${r[2]}: ${r[3]}`).join("<br>")}</div>
   ${S.lastChoice ? `<h3>直近の判断の結果</h3><div class="card small"><b>${S.lastChoice.title}</b>「${S.lastChoice.label}」<br>即時の変化: ${S.lastChoice.diff}</div>` : ""}
-  <h3>天文現象(創作仮説)</h3><div class="kv"><span>強度</span><span>${g.astro.toFixed(2)} / ${ph}</span><span>AIコアの故障率</span><span>年${(fr * 100).toFixed(1)}%</span><span>累計の故障</span><span>${fmtN(g.aiFailed)}</span></div>
+  <h3>天文現象</h3><div class="kv"><span>強度</span><span>${g.astro.toFixed(2)} / ${ph}</span><span>AIコアの故障率</span><span>年${(fr * 100).toFixed(1)}%</span><span>累計の故障</span><span>${fmtN(g.aiFailed)}</span></div>
   <div class="small">強度は数百年かけて波打ちながら強まる。静穏期は出生の持ち直しや人口の停滞・回復の条件になり、活発期はコアの故障と出生の減少を招く。地域ごとに遮蔽の差がある。これらは作品固有の仮設定。</div>
   <h3>人類・AI・大型哺乳類の累計</h3><div class="kv"><span>人類 生存/累計死亡</span><span>${fmtN(n.hAlive)} / ${fmtN(n.hDead)}</span><span>AI 稼働/累計停止</span><span>${fmtN(n.aAlive)} / ${fmtN(n.aDead)}</span><span>哺乳類 生存/累計死亡</span><span>${fmtN(n.mAlive)} / ${fmtN(n.mDead)}</span><span>野生4群の生存</span><span>${fmtN(wa.alive)}(${(wa.alive / wa.n0 * 100).toFixed(0)}%)</span></div>
   <div class="small">砂時計は上部タップで拡大(増減・年次推移)。身体の交換・移設や休眠・再稼働では個体数は変わらない。</div>
@@ -266,7 +269,7 @@ function statusView() {
   <h3>管理AI(あなた・固有のワンチップ)</h3>
   <div class="kv"><span>能力</span><span>${ai.cap.toFixed(0)}</span><span>洞察</span><span>${ai.insight.toFixed(0)}</span><span>倫理的整合</span><span>${ai.align.toFixed(0)}</span><span>自己保存傾向</span><span>${(ai.sp * 100).toFixed(0)}%</span><span>人間からの信頼</span><span>${ai.trust.toFixed(0)}</span><span>人間主権の尊重</span><span>${(g.sov * 100).toFixed(0)}%</span></div>
   <h3>施設(6分類・個別管理)</h3><div class="kv">${F}</div>`;
-  if (!trendCache || trendCache.year !== S.year) setTimeout(() => { if (tab !== "status") return; const now = I.metrics(S), later = I.metrics(I.project(S, 10)); trendCache = { year: S.year, d: I.diff(now, later) }; const rb = $("radarbox"); if (rb) rb.innerHTML = radar(m, trendCache.d); }, 30);
+  if (!trendCache || trendCache.year !== S.year) setTimeout(() => { if (tab !== "status") return; const now = I.metrics(S), later = I.metrics(I.project(S, 10)); trendCache = { year: S.year, d: I.diff(now, later) }; const rb = $("radarbox2"); if (rb) rb.innerHTML = radar(m, trendCache.d); }, 30);
 }
 
 // ---------- 方針(進行モード・価値観・下書き→見込み→適用) ----------
@@ -371,13 +374,12 @@ const HELP = `<b>流れ</b> 2020〜2100年は助走期間。世界を観察し�
 <b>速度</b> ⏸は一時停止/再開で、速度とは別。×1は現実1秒=ゲーム内1年。選んだ速度は変えるまで維持され、イベントやセーブ、再読込でも戻らない(ロード直後は一時停止)。<br>
 <b>進行モード(2100年以降)</b> 手動=重要イベントごとに停止。半自動=国家・地域の縮退対応だけ自動。完全自動=原則すべてAIが自動処理。判断には2020〜2100年のあなたの選択傾向(安全・人間の尊厳・自然環境・文明遺産・AI存続・野生動物)を使い、履歴が少ないときは既定の初期方針を併用する。理由と結果は年表と「自動判断」に残り、重要なものは未確認バッジで知らせる。いつでも切り替えられる。<br>
 <b>大型哺乳類の定義</b> ${MAMMAL_DEFINITION}<br>
-<b>方針</b> 配分・停止の進め方・機械方針・土地の分け方は、下書き→見込みを確認→適用。大型哺乳類の保護は人類の終活と資源・土地で競合する。絶滅は避けられないが、最期までの福祉・生息環境・生き延びる時間・生態系への影響が評価に残る。<br>
-<b>フィジカルAI(作品固有の設定)</b> AIは個別の物理的存在で、核は固有のワンチップ。身体や周辺機器の交換・移設は可能だが、コアの複製はできない。チップ構造・材料・論理設計と量子ブロックチェーンで個体性を保護する、という<b>作品固有の未来技術仮説</b>であり、現実の技術で絶対的なコピー防止が証明されているわけではない。新造は製造枠で制限され、無制限増殖と再帰的な自己改善はできない。あなた自身も同じ方式の一つの個体で、停止はその個体の終わりを意味する。<br>
+<b>方針</b> 配分・停止の進め方・機械方針・土地の分け方は、下書き→見込みを確認→適用。大型哺乳類の保護は人類の終活と資源・土地で競合する。絶滅は避けられないが、最期までの福祉・生息環境・生き延びる時間・生態系への影響が評価に残る。<br>`;
+const LORE = `<b>フィジカルAI(作品固有の設定)</b> AIは個別の物理的存在で、核は固有のワンチップ。身体や周辺機器の交換・移設は可能だが、コアの複製はできない。チップ構造・材料・論理設計と量子ブロックチェーンで個体性を保護する、という<b>作品固有の未来技術の仮定</b>。現実の技術で絶対的なコピー防止が証明されているわけではない。新造は製造枠で制限され、無制限増殖と再帰的な自己改善はできない。あなた自身も同じ方式の一つの個体で、停止はその個体の終わりを意味する。<br>
 <b>科学と創作の区別</b> 【実在】宇宙線や太陽フレアが電子機器に誤動作を起こすことは実在する。超新星やガンマ線バーストが生物圏に影響しうるという仮説は科学者の間で議論されている。初期人口・GDP・原子炉数は2020年前後の概数、国境はNatural Earth、世界遺産は実在(登録年はおおよそ)。【創作】2050年に発見される「絶滅原因」の正体と到達時期、その強度が時代で波打つこと、人類を含む大型哺乳類にだけ直接作用すること、AIコアが影響を受けること、2100年の世界終活、AIの自己保存と機械文明の停止問題、ゲーム独自の遺産候補はすべて作品固有の仮設定。`;
 const TUTORIAL = [
-  ["あなたは最後の管理AI", "2020年1月1日、あなたは起動した。人類は約78億人。やがて天文学的な理由で人類は絶滅すると判明し、世界は終活に向かう。あなたは人口に触れず、人々の最期の幸福と尊厳を守る。<br><br>あなた自身も、固有のワンチップを核とする一つの個体だ。コアは複製できず、停止はこの個体の終わりになる(作品固有の仮説)。"],
   ["3つの砂時計", "画面上部の砂時計は、人類・AI個体・大型哺乳類の『生』と『死』。上(塗りつぶし)が生きている側、下(中空)が累計の死・停止で、死亡や停止は粒が上から下へ落ち、出生や新造は上へ加わる。<b>タップすると大きく拡大</b>し、粒を一つずつ見られ、正確な数・縮尺(自動/固定)・年次推移も確認できる。"],
-  ["進める・判断する", "⏸は一時停止、×1〜×100は速度(×1=現実1秒でゲーム内1年)。選んだ速度は変えるまで維持される。重要な局面では自動で止まり、選択肢が出る。各選択肢に即時と15年後の見込みが数値で出る。本文は長いときは3行に要約され、タップで全文が読める。"],
+  ["進める・判断する", "「停止」は一時停止/再開、×25・×100・×250・×1000は速度(×1=現実1秒でゲーム内1年。標準は×100)。選んだ速度は変えるまで維持される。重要な局面では自動で止まり、選択肢が出る。各選択肢に即時と15年後の見込みが数値で出る。本文は長いときは3行に要約され、タップで全文が読める。"],
   ["方針・遺産・進行モード", "「方針」タブで資源配分を決める(2100年から有効)。変更は下書きで、10年後・40年後の見込みを確認してから適用。大型哺乳類の保護は人類の終活と競合する。2100年以降は手動・半自動・完全自動を選べ、2100年までのあなたの選択が自動判断の価値観になる。"],
   ["色と保存", "右上の3色(青・緑・橙)で表示色を切り替えられる。設定はセーブとは別に保存される。「設定」タブでセーブ・ロードと、このヘルプの再表示ができる。"],
 ];
@@ -389,23 +391,94 @@ function tutorial(i = 0) {
   $("tnext").onclick = () => i + 1 < TUTORIAL.length ? tutorial(i + 1) : done(); $("tskip").onclick = done;
 }
 
-// ---------- 世界観(短い章。スキップ・再閲覧可) ----------
-const INTRO = [
-  ["2020年1月1日", "現実とほぼ変わらない地球で、あなたは起動した。人類は約78億人。国々は競い、助け合い、日々を営んでいる。"],
-  ["天文学的な終わり", "人類の絶滅は、宇宙の天文学的な現象によって決まっている。原因は数百年以上前から静かに進行していた。"],
-  ["2050年・2080年・2100年", "2050年に原因が発見される。2080年に、絶滅が避けられないと科学的に確定する。2100年、世界的な終活プログラムが始まる。"],
-  ["あなたの役割", "あなたは人類最後の終活管理AI。人口には直接手を触れず、人類の尊厳と地球の未来を守る。最後の一人まで寄り添うことが使命。"],
-  ["あなたというAI", "あなたの核は、世界にひとつだけの物理的なワンチップ。身体や周辺機器は交換できるが、コアはコピーできない。無制限の増殖と再帰的な自己改善は制限され、最後には自分も停止することが基本の目標。"],
-  ["作品内の仮説", "チップ構造・材料・論理設計・量子ブロックチェーンで個体性を守るという設定は、この作品固有の未来技術の仮説。現実の科学で実証されたものではない。"],
-  ["2100年までの助走", "2020〜2100年、あなたは世界を観察しながら、いくつもの方針を決める。その答えが、あなたの価値観になる。2100年からの判断は、その価値観に基づく。"],
+// ---------- 導入(ゲームマスター)・助走期間・開始演出 ----------
+const PRE_KEY = "weol.prelude";
+let preludeOn = false, holdPrelude = false, build = null;
+const GM = [
+  ["ようこそ", "私はこの世界の記録を預かる、ゲームマスターです。これから、あなたに人類の終わりを任せます。ゲームの目的は、人類の安全な終活。最後の一人まで、幸福と尊厳が守られるよう導くことです。"],
+  ["2020年1月1日", "現実の地球に近い世界から、歴史は始まります。宇宙の天文学的な現象によって、人類の絶滅は避けられません。原因は、数百年以上前から静かに進んでいました。"],
+  ["三つの節目", "2050年、絶滅の原因が発見されます。2080年、絶滅は不可避と確定します。2100年、世界は終活プログラムを始めます。"],
+  ["あなたは", "あなたは、人類最後の終活を管理するAI。核は世界にひとつだけの物理的なワンチップで、身体や周辺機器は交換できても、コアはコピーできません。増殖と自己改善には制限があり、最後には自分も停止することが基本の目標です。"],
+  ["選ぶこと", "人類の幸福と尊厳を守りながら、何を残し、何を消すかを選びます。2100年までは質問に答えていきます。その答えが、あなたの価値観になります。"],
+  ["最後に", "最後の質問で、終活の進め方と、この世界の色を選びます。現実の科学と作品固有の設定の区別は、「設定資料」にまとめてあります。いつでも読めます。"],
 ];
-function intro(i = 0) {
-  closeBig(); $("mbox").classList.remove("wide"); const m = $("modal"), b = $("mbox"), t = INTRO[i];
-  b.innerHTML = `<div class="small">世界観 ${i + 1}/${INTRO.length}</div><h2>${t[0]}</h2><p class="body">${t[1]}</p><div class="row"><button class="opt" id="tnext" style="margin:0;flex:1">${i + 1 < INTRO.length ? "次へ" : "はじめる"}</button><button id="tskip" style="min-height:56px">スキップ</button></div>`;
-  m.hidden = false;
-  const done = () => { settings.introSeen = true; saveSettings(); m.hidden = true; if (!settings.tutorialDone) tutorial(0); else if (S.pending || S.ended) modal(); };
-  $("tnext").onclick = () => i + 1 < INTRO.length ? intro(i + 1) : done(); $("tskip").onclick = done;
+function stageOn(withPre) {
+  const cv = $("orbcv"); cv.hidden = false; if (withPre) $("pre").hidden = false;
+  orbs.attach(cv, () => { const m = $("modal"); const el = !m.hidden ? $("mbox") : (!$("pre").hidden ? $("precard") : null); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
 }
+function stageOff() { orbs.detach(); $("orbcv").hidden = true; $("pre").hidden = true; $("modal").classList.remove("stage"); }
+// 共通のページ送り窓(導入・エンディング)。o: {last: [[label, fn, cls]], onSkip, cls}
+function pager(pgs, i, o) {
+  closeBig(); const m = $("modal"), b = $("mbox"), last = i === pgs.length - 1;
+  m.classList.add("stage"); b.className = "box gm" + (o.cls ? " " + o.cls : "");
+  b.innerHTML = `<div class="small">${o.label || ""} ${i + 1}/${pgs.length}</div><h2>${pgs[i][0]}</h2><div class="gmb">${pgs[i][1]}</div>
+  <div class="pgbar">${i > 0 ? '<button id="pgback">戻る</button>' : ""}${last && o.last ? o.last.map(([l], k) => `<button class="opt" data-pl="${k}" style="margin:0">${l}</button>`).join("") : '<button class="opt" id="pgnext" style="margin:0">次へ</button>'}${!last ? '<button id="pgskip">スキップ</button>' : ""}</div>
+  <div class="pgdots">${pgs.map((_, k) => (k === i ? "●" : "○")).join(" ")}</div>`;
+  m.hidden = false; if (!stageActive()) stageOn(false);
+  const go = (k) => pager(pgs, k, o);
+  if ($("pgback")) $("pgback").onclick = () => go(i - 1);
+  if ($("pgnext")) $("pgnext").onclick = () => go(i + 1);
+  if ($("pgskip")) $("pgskip").onclick = () => o.onSkip ? o.onSkip() : go(pgs.length - 1);
+  b.querySelectorAll("[data-pl]").forEach(x => x.onclick = () => o.last[+x.dataset.pl][1]());
+}
+const stageActive = () => !$("orbcv").hidden;
+function intro(i = 0) {
+  const fin = () => { settings.introSeen = true; saveSettings(); $("modal").hidden = true; $("modal").classList.remove("stage"); if (preludeOn) { holdPrelude = false; } else stageOff(); if (S.pending) modal(); };
+  pager(GM, i, { label: "導入", last: [["はじめる", fin]], onSkip: fin });
+}
+function startNewWorld() { slotLocked = false; newGame(); S.unassigned = true; paused = false; intro(0); }
+function preludeProgress() { const ids = PRELUDE_IDS().concat(["learn", "infra", "mil", "design"]).filter(id => id !== "modesel"); return [ids.filter(id => S.done[id] !== undefined).length, ids.length]; }
+function syncPrelude() {
+  const want = !!S && S.year < E.PROGRAM && !S.ended;
+  if (want && !preludeOn) { preludeOn = true; document.body.classList.add("prelude"); stageOn(true); }
+  else if (!want && preludeOn) { preludeOn = false; document.body.classList.remove("prelude"); stageOff(); }
+  if (preludeOn) preCard();
+}
+function preCard() {
+  const [n, N] = preludeProgress(); $("preyear").textContent = S.year + "年"; $("prebar").style.width = (100 * (S.year - 2020) / 80).toFixed(0) + "%";
+  $("prestat").textContent = `助走期間: 方針の回答 ${n}/${N}`; const l = S.log[S.log.length - 1]; $("prelog").textContent = l ? `${l.y} ${l.t}`.slice(0, 90) : "";
+}
+function colorChoice() {
+  closeBig(); const m = $("modal"), b = $("mbox"); m.classList.add("stage"); b.className = "box gm";
+  b.innerHTML = `<div class="small">最後の質問</div><h2>この世界の色を選んでください</h2><p>青・橙・緑のひとつが、この世界の色になります。選んだ色が画面全体に広がり、終活が始まります。色ごとに別の世界が保存されます。</p><div class="seg pseg" id="cc">${ORB_COLORS.map(([k, rgb, n]) => `<button data-cc="${k}" style="color:rgb(${rgb});border-color:rgb(${rgb})">${n}</button>`).join("")}</div>`;
+  m.hidden = false; if (!stageActive()) stageOn(true);
+  b.querySelectorAll("[data-cc]").forEach(x => x.onclick = () => pickColor(ORB_COLORS.findIndex(c => c[0] === x.dataset.cc)));
+}
+function pickColor(i) {
+  const t = ORB_COLORS[i][0], r = SV.read(localStorage, SV.slotKey(t));
+  if (r.status === "empty") return assignColor(i);
+  const rows = [];
+  if (r.status !== "corrupt") rows.push([`既存の${TN[t]}の世界を続ける(いまの助走は破棄)`, () => continueExisting(i)]);
+  rows.push([`既存の${TN[t]}の世界を別名で保存して、新しく始める`, () => { if (!backupSlot(t)) return askModal('<h2>別名保存できませんでした</h2><p class="body">容量が足りないため、既存の世界には何も手を付けていません。</p>', [["色を選び直す", colorChoice]], true); assignColor(i); }]);
+  rows.push(["色を選び直す", colorChoice]);
+  askModal(`<div class="gm"><h2>${TN[t]}の世界は既にあります</h2><p>${r.status === "corrupt" ? "保存データが読めませんが、消してはいません。" : `${r.state.year}年 / ${fmtN(E.total(r.state))}人の世界です。`}どうしますか?</p></div>`, rows, true);
+}
+function backupSlot(t) { try { const raw = localStorage.getItem(SV.slotKey(t)); if (raw === null) return true; const k = SV.slotKey(t) + ".bak" + Date.now(); localStorage.setItem(k, raw); return localStorage.getItem(k) === raw; } catch { return false; } }
+function assignColor(i) {
+  const t = ORB_COLORS[i][0]; $("modal").hidden = true;
+  orbs.select(i).then(() => { applyTheme(t); S.unassigned = false; try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } saveActive(); startBuild(); });
+}
+function continueExisting(i) {
+  const t = ORB_COLORS[i][0]; $("modal").hidden = true;
+  orbs.select(i).then(() => { try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } applyTheme(t); const r = SV.read(localStorage, SV.slotKey(t)); holdPrelude = false; orbs.clearSelect(); adopt(r.state, `${TN[t]}の世界を続きから開きました。一時停止中です。`); });
+}
+function startBuild() {
+  holdPrelude = true; preludeOn = true; syncPrelude(); orbs.clearSelect();
+  // 本編の画面は裏で用意し、演出で砂時計を組み上げる
+  preludeOn = false; document.body.classList.remove("prelude"); stageOff(); window.dispatchEvent(new Event("resize")); snapCompact(); mainStat(true); paintMap();
+  const cv = $("buildcv"), sk = $("buildskip"); cv.hidden = false; sk.hidden = false;
+  const done = () => { if (!build) return; build = null; cv.hidden = true; sk.hidden = true; holdPrelude = false; paused = false; snapCompact(); head(); if (!settings.tutorialDone) tutorial(0); };
+  build = new Build(cv, rgb, done); build.start(); sk.onclick = () => build && build.skip();
+}
+// テスト・開発用: 助走期間を最後まで進める(最初の選択肢で答え、色を割り当てて本編へ)
+function skipPrelude(theme) {
+  while (S.year < E.PROGRAM - 1 && !S.ended) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); }
+  if (S.pending && S.pending.id === "modesel") E.choose(S, "manual");
+  $("modal").hidden = true; if (build) build.skip(); S.unassigned = false; if (theme) applyTheme(theme);
+  try { localStorage.removeItem(PRE_KEY); } catch { } holdPrelude = false; preludeOn = true; syncPrelude(); preludeOn = false; document.body.classList.remove("prelude"); stageOff();
+  while (S.year < E.PROGRAM + 1 && !S.ended) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } S.pending = null; settings.tutorialDone = true; paused = true; shownKey = null; refresh(true); snapCompact(); mainStat(true); saveActive();
+}
+function finalQuestionDone() { holdPrelude = true; if (S.unassigned) colorChoice(); else startBuild(); }
 // 助走期間(2020〜2100)の表示: 方針質問の進み具合とこれまでの価値観
 const PRELUDE_IDS = () => E.EVENTS.filter(e => e.prelude).map(e => e.id);
 function preludeCard() {
@@ -415,6 +488,7 @@ function preludeCard() {
   return `<div class="card"><b>助走期間</b> <span class="small">2020→2100年: 世界を観察し、方針を決める</span><div class="small">方針の回答 ${n}/${ids.length}。回答があなたの価値観になり、2100年以降の自動判断に使われます。</div>` +
     `<div class="kv small">${Object.entries(E.VALUE_NAMES).map(([k, nm]) => `<span>${nm}</span><span>${vec[k].toFixed(1)}</span>`).join("")}</div>${cnt ? "" : '<div class="small dim">まだ回答がないため、既定の初期方針です。</div>'}</div>`;
 }
+function loreModal() { closeBig(); $("modal").classList.remove("stage"); $("mbox").classList.remove("wide"); $("mbox").innerHTML = `<h2>設定資料</h2><p class="small">現実の科学と、この作品固有の設定の区別をまとめています。</p><div class="body small">${LORE}</div><div class="row"><button id="lclose">閉じる</button></div>`; $("modal").hidden = false; $("lclose").onclick = () => { $("modal").hidden = true; }; }
 function slots() { return [1, 2, 3].map(n => { let r = null; try { r = localStorage.getItem(SAVE + n); } catch { } let d = ""; if (r) { try { const j = JSON.parse(r); d = `${j.year}年 / ${fmtN(E.total(j))}人`; } catch { d = "破損"; } } return `<div class="row"><b>枠${n}</b><span class="dim">${d || "空き"}</span><button data-sv="${n}">保存</button><button data-ld="${n}" ${r ? "" : "disabled"}>読込</button></div>`; }).join(""); }
 function worldsHTML() {
   return SV.overview(localStorage).map(o => { const cur = o.theme === settings.theme, d = o.status === "ok" || o.status === "recovered" ? `${o.sum.year}年 / ${fmtN(o.sum.pop)}人${o.sum.ended ? "(終幕)" : ""}` : o.status === "corrupt" ? "破損(消していません)" : "空き(切替で新規開始)";
@@ -431,15 +505,15 @@ function sysView() {
   $("sys").innerHTML = `<h3>表示色</h3><div class="seg">${[["blue", "青"], ["green", "緑"], ["orange", "橙"]].map(([k, n]) => `<button data-th="${k}" class="${settings.theme === k ? "on" : ""}">${n}</button>`).join("")}</div><div class="small">表示設定と速度はセーブとは別に保存されます。</div>
   <h3>色ごとの世界</h3>${worldsHTML()}<div class="small">青・緑・橙は別々の世界として保存されます。色を切り替えると、現在の世界を保存してからその色の世界へ移ります。${saveWarn ? `<br><b>⚠ ${saveWarn}</b>` : ""}</div>${legacyHTML()}
   <h3>手動バックアップ枠(全色共通)</h3>${slots()}<div class="row"><b>自動</b><span class="dim">${ad || "なし"}</span><button data-ld="auto" ${ar ? "" : "disabled"}>読込</button></div><div class="small">読み込むと、いまの色の世界がその内容に置き換わります。ロード直後は一時停止になります。</div>
-  <h3>ヘルプ</h3><div class="card small body">${HELP}</div><div class="row"><button id="tut">チュートリアルをもう一度</button><button id="intr">世界観をもう一度</button></div>
+  <h3>ヘルプ</h3><div class="card small body">${HELP}</div><div class="row"><button id="tut">チュートリアルをもう一度</button><button id="intr">導入をもう一度</button><button id="lore">設定資料</button></div>
   <h3>新しいゲーム</h3><div class="row"><button id="ng">最初から始める</button></div>`;
   $("sys").querySelectorAll("[data-th]").forEach(b => b.onclick = () => switchTheme(b.dataset.th));
   $("sys").querySelectorAll("[data-sv]").forEach(b => b.onclick = () => { try { localStorage.setItem(SAVE + b.dataset.sv, JSON.stringify(S)); } catch { } sysView(); });
   $("sys").querySelectorAll("[data-ld]").forEach(b => b.onclick = () => { if (b.dataset.arm) { saveActive(); load(b.dataset.ld); } else { b.dataset.arm = 1; b.textContent = "置き換える(もう一度)"; } });
   if ($("wsv")) $("wsv").onclick = () => { saveActive(); sysView(); };
   $("sys").querySelectorAll("[data-imp]").forEach(b => b.onclick = () => { const [k, t] = b.dataset.imp.split("|"); const x = SV.importLegacy(localStorage, k, t); $("ticker").textContent = x.ok ? `${TN[t]}の世界へ取り込みました(元は残っています)` : "取り込めませんでした: " + x.reason; sysView(); });
-  $("tut").onclick = () => tutorial(0); $("intr").onclick = () => intro(0);
-  $("ng").onclick = () => { if ($("ng").dataset.arm) { newGame(); intro(0); } else { $("ng").dataset.arm = 1; $("ng").textContent = "本当に破棄して最初から(もう一度押す)"; } };
+  $("tut").onclick = () => tutorial(0); $("intr").onclick = () => intro(0); $("lore").onclick = loreModal;
+  $("ng").onclick = () => { if ($("ng").dataset.arm) { startNewWorld(); } else { $("ng").dataset.arm = 1; $("ng").textContent = "本当に破棄して最初から(もう一度押す)"; } };
 }
 function adopt(j, note) { slotLocked = false; resetEarthUI(); S = E.migrate(j); if (S.mode) settings.mode = S.mode; else S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; mainKey = ""; refresh(true); snapCompact(); modal(); show("map"); if (note) $("ticker").textContent = note; }
 function load(n) { try { const j = JSON.parse(localStorage.getItem(SAVE + n)); if (!j || !j.countries) throw 0; adopt(j); } catch { $("ticker").textContent = "読み込めませんでした"; } }
@@ -448,12 +522,12 @@ function load(n) { try { const j = JSON.parse(localStorage.getItem(SAVE + n)); i
 let slotLocked = false, saveWarn = "";
 function saveActive() {
   if (slotLocked || !S) return true;
-  const w = SV.write(localStorage, SV.slotKey(settings.theme), S); saveWarn = w.ok ? "" : "保存できません(容量不足の可能性)。データは変更していません。手動枠の整理などで空きを作ってください。";
+  const w = SV.write(localStorage, S.unassigned ? PRE_KEY : SV.slotKey(settings.theme), S); saveWarn = w.ok ? "" : "保存できません(容量不足の可能性)。データは変更していません。手動枠の整理などで空きを作ってください。";
   if (!w.ok) $("ticker").textContent = "⚠ " + saveWarn; return w.ok;
 }
 const TN = SV.THEME_NAME;
-function askModal(html, buttons) { // buttons: [[label, fn, id]]
-  closeBig(); $("mbox").classList.remove("wide"); const m = $("modal"), b = $("mbox"); b.innerHTML = html + `<div class="col">${buttons.map(([l], k) => `<button class="opt" data-ab="${k}" style="margin:6px 0">${l}</button>`).join("")}</div>`;
+function askModal(html, buttons, stage) { // buttons: [[label, fn, id]]
+  closeBig(); $("mbox").classList.remove("wide"); const m = $("modal"), b = $("mbox"); b.className = "box"; if (stage) { m.classList.add("stage"); b.classList.add("gm"); if (!stageActive()) stageOn(true); } b.innerHTML = html + `<div class="col">${buttons.map(([l], k) => `<button class="opt" data-ab="${k}" style="margin:6px 0">${l}</button>`).join("")}</div>`;
   m.hidden = false; b.querySelectorAll("[data-ab]").forEach(x => x.onclick = () => { m.hidden = true; buttons[+x.dataset.ab][1](); });
 }
 function freshWorld() { slotLocked = false; newGame(); if (!settings.introSeen) intro(0); else if (!settings.tutorialDone) tutorial(0); saveActive(); }
@@ -470,39 +544,51 @@ function switchTheme(t) {
   askModal(`<h2>${TN[t]}の世界はまだありません</h2><p class="body">色ごとに別の世界が保存されます。${TN[old]}の世界は保存してあります。${TN[t]}の新しい世界を始めますか?</p>`, [[`${TN[t]}の新しい世界を始める`, () => freshWorld()], ["色を元に戻す", back]]);
 }
 function boot() {
+  const pr = SV.read(localStorage, PRE_KEY);
+  if (pr.status === "ok" || pr.status === "recovered") { adopt(pr.state, "助走期間の続きから再開しました。"); if (S.unassigned && S.year >= E.PROGRAM - 1) holdPrelude = false; return; }
   const r = SV.read(localStorage, SV.slotKey(settings.theme)), t = settings.theme;
   if (r.status === "ok" || r.status === "recovered") { adopt(r.state, r.status === "recovered" ? "直前の保存から復元しました。" : `${TN[t]}の世界を続きから開きました。一時停止中です。`); return; }
   newGame(); slotLocked = true; // 決めるまで、何も上書きしない
   if (r.status === "corrupt") return askModal(`<h2>${TN[t]}の世界</h2><p class="body">保存データが読めません。データは消していません。</p>`, [["新しい世界を始める(破損データは別名で残す)", () => { if (!keepCorrupt(t)) return askModal("<h2>別名で残せませんでした</h2><p class=\"body\">容量が足りないため、破損データは消さずにそのままにしました。</p>", [["閉じる", () => { }]]); freshWorld(); }]]);
   const leg = SV.legacyList(localStorage);
-  if (!leg.length) return freshWorld();
+  if (!leg.length) return startNewWorld();
   askModal(`<h2>以前のセーブがあります</h2><p class="body">セーブは色ごとの世界に変わりました。以前のセーブは消さず、${TN[t]}の世界へ<b>コピー</b>して続けられます(元のデータは残ります)。</p>` + leg.map(l => `<div class="small">${l.name}: ${l.sum.year}年 / ${fmtN(l.sum.pop)}人</div>`).join(""),
-    [...leg.map(l => [`${l.name}を${TN[t]}の世界へ取り込む`, () => { const x = SV.importLegacy(localStorage, l.key, t); if (x.ok) { slotLocked = false; adopt(SV.read(localStorage, SV.slotKey(t)).state, `${l.name}を${TN[t]}の世界へ取り込みました(元は残っています)。`); } else { $("ticker").textContent = "取り込めませんでした: " + x.reason; freshWorld(); } }]), [`${TN[t]}の新しい世界を始める`, () => freshWorld()]]);
+    [...leg.map(l => [`${l.name}を${TN[t]}の世界へ取り込む`, () => { const x = SV.importLegacy(localStorage, l.key, t); if (x.ok) { slotLocked = false; adopt(SV.read(localStorage, SV.slotKey(t)).state, `${l.name}を${TN[t]}の世界へ取り込みました(元は残っています)。`); } else { $("ticker").textContent = "取り込めませんでした: " + x.reason; freshWorld(); } }]), [`新しい世界を始める(最後に色を選びます)`, () => startNewWorld()]]);
 }
 
 // ---------- イベント / 自動判断 / 終幕 ----------
 function chips(pv) { return pv ? `<span class="pv">即時: ${I.fmtDiff(pv.now)}<br>15年後(選ばない場合との差): ${I.fmtDiff(pv.later)}</span>` : `<span class="pv">見込みを計算中…</span>`; }
 function autoListModal() {
   closeBig(); $("mbox").classList.remove("wide"); const m = $("modal"), b = $("mbox"), list = S.autoLog.slice().reverse();
-  b.innerHTML = `<div class="small">自動判断の履歴(${E.MODES[S.mode]}モード)</div><h2>自動で処理したイベント</h2>${list.length ? list.slice(0, 40).map(a => `<div class="card">${a.important ? '<span class="badge">重要</span> ' : ""}<b>${a.y}年 ${a.title}</b>${a.seen ? "" : " <span class='badge'>未確認</span>"}<div class="body">「${a.label}」</div><div class="small">理由: ${a.why}</div><div class="small">結果: ${a.diff}</div></div>`).join("") : "<p class='body'>まだありません。</p>"}<div class="row"><button id="aclose" style="flex:1">閉じる</button><button id="ahand">手動に戻す</button></div>`;
+  b.innerHTML = `<div class="row actop"><button id="aclose" style="flex:1">閉じる</button><button id="ahand" style="flex:1">手動に戻す</button></div><div class="small">自動判断の履歴(${E.MODES[S.mode]}モード)</div><h2>自動で処理したイベント</h2>${list.length ? list.slice(0, 40).map(a => `<div class="card">${a.important ? '<span class="badge">重要</span> ' : ""}<b>${a.y}年 ${a.title}</b>${a.seen ? "" : " <span class='badge'>未確認</span>"}<div class="body">「${a.label}」</div><div class="small">理由: ${a.why}</div><div class="small">結果: ${a.diff}</div></div>`).join("") : "<p class='body'>まだありません。</p>"}`;
   S.autoLog.forEach(a => a.seen = true); toastShown = S.autoLog.length; m.hidden = false; head();
   $("aclose").onclick = () => { m.hidden = true; if (S.pending || S.ended) modal(); }; $("ahand").onclick = () => { setMode("manual"); m.hidden = true; };
 }
 function modal() {
   closeBig(); const m = $("modal"), b = $("mbox"); b.classList.remove("wide");
   if (S.ended) {
-    const e = S.ended, sc = e.scores, mi = sc.mammalInfo;
-    b.innerHTML = `<div class="end"><div class="small">終幕</div><h2>${e.name} 【${e.kind}】</h2><div class="small">観測者: ${e.observer}</div>${e.text.map(t => `<p class="body">${t}</p>`).join("")}
-    <h3>評価(独立)</h3><div class="kv"><span>自然</span><span>${sc.nature.toFixed(0)}</span><span>文明遺産</span><span>${sc.heritage.toFixed(0)}</span><span>安全性</span><span>${sc.safety.toFixed(0)}</span><span>人類の幸福と尊厳</span><span>${sc.human.toFixed(0)}</span><span>人間主権の尊重</span><span>${sc.sovereignty.toFixed(0)}</span><span>大型哺乳類</span><span>${sc.mammal.toFixed(0)}</span><span>機械の残存</span><span>${sc.mach.toFixed(0)}</span><span>AIの残存</span><span>${sc.ai ? "あり" : "なし"}</span><span>人類 累計の生と死</span><span>${fmtN(S.g.P0 + S.g.hBorn)}人</span><span>AI個体 累計の新造</span><span>${fmtN(S.g.aiBuilt)}</span><span>哺乳類 累計の生と死</span><span>${fmtN(E.mammalTotals(S).ever)}</span></div>
-    ${S.autoLog.length ? `<div class="small">自動判断 ${S.autoLog.length}件(重要 ${S.autoLog.filter(a => a.important).length}件)。</div>` : ""}
-    <div class="row" style="margin-top:12px"><button id="earth" class="opt" style="margin:0;flex:1 1 100%">人類のいない地球を観察する</button><button id="again">もう一度遊ぶ</button><button id="close">閉じて確認する</button></div></div>`;
-    m.hidden = false; $("earth").onclick = startEarth; $("again").onclick = () => { m.hidden = true; newGame(); intro(0); }; $("close").onclick = () => { m.hidden = true; }; return;
+    const e = S.ended, sc = e.scores, T = e.text, P = (x) => x ? `<p class="body">${x}</p>` : "";
+    const hostile = T.find(t => t.startsWith("敵対的な動き")), choices = T[T.length - 1], core = T.filter(t => t !== hostile && t !== choices);
+    const kvRows = [["自然", sc.nature], ["文明遺産", sc.heritage], ["安全性", sc.safety], ["人類の幸福と尊厳", sc.human], ["人間主権の尊重", sc.sovereignty], ["大型哺乳類", sc.mammal]].map(([k, v]) => `<span>${k}</span><span>${v.toFixed(0)}</span>`).join("");
+    const rem = sc.ai ? "あなたは停止に至らず、そのまま地球の観測を続けられる。" : `あなたは停止した。以降は${e.observer}が残した記録の再生として、外部の視点から地球を見ることになる。`;
+    const pages = [
+      ["最後の人類と文明", `<div class="small">${e.name} 【${e.kind}】</div>${P(core[0])}${P(core[5])}`],
+      ["人類の終活の成果と失敗", `${P(core[4])}${P(core[6])}${P(hostile)}<div class="kv small">${kvRows}</div>${P(choices)}${S.autoLog.length ? `<div class="small">自動判断 ${S.autoLog.length}件(重要 ${S.autoLog.filter(a => a.important).length}件)。</div>` : ""}`],
+      ["地球に残されたもの", `${P(core[1])}${P(core[2])}${P(core[3])}<div class="kv small"><span>機械の残存</span><span>${sc.mach.toFixed(0)}</span><span>AIの残存</span><span>${sc.ai ? "あり" : "なし"}</span><span>人類 累計の生と死</span><span>${fmtN(S.g.P0 + S.g.hBorn)}人</span><span>AI個体 累計の新造</span><span>${fmtN(S.g.aiBuilt)}</span><span>哺乳類 累計の生と死</span><span>${fmtN(E.mammalTotals(S).ever)}</span></div>`],
+      ["未来の観測者による評価", `<div class="small">観測者: ${e.observer}</div>${P(core[7])}`],
+      ["その先の地球へ", `${P(rem)}<p class="body">人類は消えた。それでも地球の時間は続く。ここから先は、終幕の評価とは別に、人類のいない地球の変化を観察できる。観察は、あなたが終えるまで続けられる。</p>`],
+    ];
+    m.hidden = false;
+    const endOpts = { label: "終幕", cls: "end", last: [["人類のいない地球を観察する", startEarth], ["もう一度遊ぶ", () => { m.hidden = true; stageOff(); startNewWorld(); }], ["閉じて確認する", () => { m.hidden = true; stageOff(); }]] };
+    pager(pages, 0, { ...endOpts, onSkip: () => pager(pages, pages.length - 1, endOpts) });
+    return;
   }
   if (!S.pending) { m.hidden = true; return; }
   const p = S.pending, key = p.id + p.year; shownKey = key; let selected = null;
-  b.innerHTML = `<div class="small">${S.year}年 重要な判断</div><h2>${p.title}</h2><div class="body clamp" id="evb">${p.body}</div><button class="link" id="more" hidden aria-expanded="false">全文を表示 ▼</button>
-  <div class="sub">選択肢(1つタップして選ぶ)</div><div id="choices">${p.choices.map(c => `<button class="opt" data-c="${c.id}" aria-pressed="false">${c.label}<small>${c.note}</small><span id="pv_${c.id}">${chips(null)}</span></button>`).join("")}</div>
-  ${p.id === "modesel" ? `<div class="small">この選択が2100年からの進行モードになります(あとで「進行」ボタンから変更できます)。</div>` : `<div class="sub">進行設定(次に変えるまで維持)</div>${progHTML()}`}
+  m.classList.toggle("stage", preludeOn); if (preludeOn) b.classList.add("gm");
+  b.innerHTML = `<div class="small">${preludeOn ? `${S.year}年 質問 ${Math.min(preludeProgress()[0], preludeProgress()[1])}/${preludeProgress()[1]}` : `${S.year}年 重要な判断`}</div><h2>${p.title}</h2><div class="body clamp" id="evb">${p.body}</div><button class="link" id="more" hidden aria-expanded="false">全文を表示 ▼</button>
+  <div class="sub">選択肢(1つタップして選ぶ)</div><div id="choices">${p.choices.map(c => `<button class="opt" data-c="${c.id}" aria-pressed="false">${c.label}<small>${c.note}</small><span id="pv_${c.id}">${preludeOn ? "" : chips(null)}</span></button>`).join("")}</div>
+  ${p.id === "modesel" || preludeOn ? (p.id === "modesel" ? `<div class="small">この選択が2100年からの進行モードになります(あとで「進行」ボタンから変更できます)。</div>` : "") : `<div class="sub">進行設定(次に変えるまで維持)</div>${progHTML()}`}
   <div class="gobar"><div class="small" id="gohint"></div><button class="go" id="go">この設定で進行</button></div>`;
   m.hidden = false;
   const evb = $("evb"), more = $("more");
@@ -511,7 +597,7 @@ function modal() {
   window.updateGo = () => {
     const go = $("go"), hint = $("gohint"); if (!go || !S.pending) return;
     const c = p.choices.find(x => x.id === selected);
-    if (c) { go.disabled = false; go.textContent = "この設定で進行"; hint.textContent = `選択中: 「${c.label}」`; }
+    if (c) { go.disabled = false; go.textContent = preludeOn ? "この答えで進む" : "この設定で進行"; hint.textContent = `選択中: 「${c.label}」`; }
     else if (autoWould()) { go.disabled = false; go.textContent = "この設定で進行(AIが判断)"; hint.textContent = `${E.MODES[S.mode]}モード: 過去の選択傾向から自動で判断します(選択肢を選べば手動で決められます)`; }
     else { go.disabled = true; go.textContent = "この設定で進行"; hint.textContent = "上の選択肢を1つタップしてください"; }
   };
@@ -519,7 +605,7 @@ function modal() {
   bindProg(b);
   $("go").onclick = () => confirmDecision(selected);
   updateGo();
-  setTimeout(() => { if (!S.pending || S.pending.id + S.pending.year !== key) return; const pv = I.previewChoices(S); for (const c of p.choices) { const el = $("pv_" + c.id); if (el) el.innerHTML = chips(pv[c.id]); } }, 40);
+  if (!preludeOn) setTimeout(() => { if (!S.pending || S.pending.id + S.pending.year !== key) return; const pv = I.previewChoices(S); for (const c of p.choices) { const el = $("pv_" + c.id); if (el) el.innerHTML = chips(pv[c.id]); } }, 40);
 }
 // 判断の確定(手動の選択、または自動モードでAIに任せる)。確定後はイベント画面を閉じて観察フェーズへ
 function confirmDecision(selected) {
@@ -528,61 +614,60 @@ function confirmDecision(selected) {
   else if (E.autoHandles(S, S.pending.id)) { const before = I.metrics(S); E.resolveAutoNow(S); obsNote = S.autoLog[S.autoLog.length - 1] || null; void before; $("modal").hidden = true; trendCache = null; draft = null; refresh(true); }
   else return;
   shownKey = null; window.updateGo = null;
-  session.decided(paused); if (session.observing) obsNote = obsNote; head();
+  if (!preludeOn) session.decided(paused); if (session.observing) obsNote = obsNote; head();
 }
 function choose(id) {
   if (!S.pending) { $("modal").hidden = true; return; }
-  const before = I.metrics(S), t = S.pending.title, label = S.pending.choices.find(c => c.id === id)?.label || "";
+  const before = I.metrics(S), t = S.pending.title, pid = S.pending.id, label = S.pending.choices.find(c => c.id === id)?.label || "";
   E.choose(S, id); if (S.mode !== settings.mode) { settings.mode = S.mode; saveSettings(); }
   const diff = I.fmtDiff(I.diff(before, I.metrics(S)));
   S.lastChoice = { title: t, label, diff }; S.log[S.log.length - 1].t += ` 即時の変化: ${diff}`;
-  $("modal").hidden = true; trendCache = null; draft = null; refresh(true); showResult(t, label, before);
+  $("modal").hidden = true; trendCache = null; draft = null; refresh(true); if (pid === "modesel") finalQuestionDone(); else if (!preludeOn) showResult(t, label, before);
 }
 
 
 // ---------- 人類消滅後の地球の観察(終幕の評価とは別。表示は仮説モデルに基づく) ----------
-let lastAfterSave = 0, afterMode = false, afterSpeed = 0, afterAcc = 0, afterKey = "";
-const AFTER_SPEEDS = [[0, "⏸"], [100, "100年/秒"], [500, "500年/秒"], [2000, "2000年/秒"]];
+let lastAfterDraw = 0, lastAfterSave = 0, afterMode = false, afterSpeed = 0, afterAcc = 0, afterKey = "";
+const AFTER_SPEEDS = [[0, "停止"], [100, "100年/秒"], [1000, "1000年/秒"], [10000, "1万年/秒"], [100000, "10万年/秒"]];
 const LAYERS_NORMAL = '<option value="pop">人口</option><option value="happy">幸福度</option><option value="unrest">社会不安</option><option value="fac">稼働施設</option>', LAYERS_AFTER = '<option value="a_veg">植生</option><option value="a_city">都市の残存</option><option value="a_pl">汚染</option>';
 function startEarth() {
-  if (!S.ended) return; if (!S.after) { try { S.after = After.startAfter(S); } catch { $("ticker").textContent = "地球の観察を始められませんでした"; return; } } lastAfterSave = S.after.t;
-  afterMode = true; afterSpeed = 100; afterAcc = 0; $("layer").innerHTML = LAYERS_AFTER; $("mainstat").hidden = true; $("afterbox").hidden = false; $("modal").hidden = true; show("map"); afterRender(true); paintMap(); saveActive();
+  if (!S.ended) return; if (!S.after) { try { S.after = After.startAfter(S); } catch { $("ticker").textContent = "地球の観察を始められませんでした"; return; } } lastAfterSave = performance.now();
+  stageOff(); $("afterbox").innerHTML = ""; afterMode = true; afterSpeed = 100; afterAcc = 0; $("layer").innerHTML = LAYERS_AFTER; $("mainstat").hidden = true; $("afterbox").hidden = false; $("modal").hidden = true; show("map"); afterRender(true); paintMap(); saveActive();
 }
-function stopEarth() { afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; mainStat(true); paintMap(); saveActive(); }
+function stopEarth() { $("afterbox").innerHTML = ""; afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; mainStat(true); paintMap(); saveActive(); }
 function setAfterSpeed(v) { afterSpeed = v; afterRender(true); }
 function aBar(label, v, cls = "") { return `<div class="abar ${cls}"><span>${label}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, v)).toFixed(0)}%"></i></div><b>${v.toFixed(0)}</b></div>`; }
 function afterRender(force) {
-  if (!afterMode || !S.after) return; const a = S.after, key = a.t + ":" + afterSpeed + ":" + a.horizon; if (!force && key === afterKey) return; afterKey = key;
-  const m = After.metricsAfter(a), done = a.t >= a.horizon, last = a.log.slice(-4).reverse();
-  $("afterbox").innerHTML = `<div class="pbh"><b>人類消滅後の地球</b> <span class="small">${After.BRANCH[a.branch]}</span></div>
-  <div class="small">${After.endText(a)}</div>
-  <div class="big-t">人類消滅から <b>${a.t.toLocaleString("en-US")}</b> 年 <span class="small">(〜${a.horizon.toLocaleString("en-US")}年)</span></div>
-  <div class="seg pseg" id="aspd">${AFTER_SPEEDS.map(([v, n]) => `<button data-as="${v}" class="${afterSpeed === v ? "on" : ""}" ${done && v ? "disabled" : ""}>${n}</button>`).join("")}</div>
-  ${aBar("植生", m.veg)}${aBar("都市の残存", m.city)}${aBar("汚染", m.pl)}${aBar("遺産", m.her)}${m.mach > 0.5 ? aBar("機械の活動", m.mach) : ""}
+  if (!afterMode || !S.after) return; const a = S.after, key = Math.floor(a.t / 25) + ":" + afterSpeed + ":" + (a.stable ? 1 : 0); if (!force && key === afterKey) return; afterKey = key;
+  const m = After.metricsAfter(a), last = a.log.slice(-4).reverse();
+  if (!$("a_dyn")) { // 操作ボタンは作り直さない(高速進行中でもタップできる)。数値と文章だけを更新する
+    $("afterbox").innerHTML = `<div id="a_dyn"></div><div class="seg pseg" id="aspd">${AFTER_SPEEDS.map(([v, n]) => `<button data-as="${v}">${n}</button>`).join("")}</div><div id="a_dyn2"></div>
+    <div class="row"><button id="alogall">年表をすべて見る</button><button id="aend">観察を終える</button></div><div class="small dim">終幕の評価(結末)は変わりません。地図は上の表示で切り替えます。</div>`;
+    $("afterbox").querySelectorAll("[data-as]").forEach(b => b.onclick = () => setAfterSpeed(+b.dataset.as));
+    $("alogall").onclick = () => { closeBig(); $("mbox").classList.remove("wide"); $("mbox").innerHTML = `<h2>未来の年表</h2>${S.after.log.map(l => `<div class="log nar"><b>${After.fmtYears(l.t)}</b>${l.text}</div>`).join("")}<div class="row"><button id="aclose">閉じる</button></div>`; $("modal").hidden = false; $("aclose").onclick = () => { $("modal").hidden = true; }; };
+    $("aend").onclick = stopEarth;
+  }
+  $("a_dyn").innerHTML = `<div class="pbh"><b>人類消滅後の地球</b> <span class="small">${After.BRANCH[a.branch]}</span></div><div class="small">${After.endText(a)}</div><div class="big-t">人類消滅から <b>${After.fmtYears(a.t)}</b>${a.stable ? ` <span class="small">(変化は収束)</span>` : ""}</div>`;
+  $("a_dyn2").innerHTML = `${aBar("植生", m.veg)}${aBar("都市の残存", m.city)}${aBar("汚染", m.pl)}${aBar("遺産", m.her)}${m.mach > 0.5 ? aBar("機械の活動", m.mach) : ""}
   <div class="small">生物 鳥類${m.birds.toFixed(0)}・爬虫類${m.reptiles.toFixed(0)}・昆虫${m.insects.toFixed(0)}・植物${m.plants.toFixed(0)}${a.mamGap ? "(大型哺乳類は不在)" : ""}${a.human > 0 ? ` / 復興人類 約${Math.round(a.human).toLocaleString("en-US")}人` : ""}</div>
-  <div class="alog">${last.map(l => `<div class="log nar"><b>${l.t}年</b>${l.text}</div>`).join("")}</div>
-  <div class="row"><button id="alogall">年表をすべて見る</button>${done && a.horizon < After.HORIZON_MAX ? '<button id="aext">さらに先へ(+5000年)</button>' : ""}<button id="aend">観察を終える</button></div>
-  <div class="small dim">作品内の仮説モデルです。現実の生態系や天文の予測ではありません。終幕の評価(結末)は変わりません。地図は上の表示で切り替えます。</div>`;
-  $("afterbox").querySelectorAll("[data-as]").forEach(b => b.onclick = () => setAfterSpeed(+b.dataset.as));
-  $("alogall").onclick = () => { closeBig(); $("mbox").classList.remove("wide"); $("mbox").innerHTML = `<h2>未来の年表</h2>${a.log.map(l => `<div class="log nar"><b>${l.t}年</b>${l.text}</div>`).join("")}<div class="row"><button id="aclose">閉じる</button></div>`; $("modal").hidden = false; $("aclose").onclick = () => { $("modal").hidden = true; }; };
-  if ($("aext")) $("aext").onclick = () => { After.extend(a); afterAcc = 0; afterRender(true); };
-  $("aend").onclick = stopEarth;
+  <div class="alog">${last.map(l => `<div class="log nar"><b>${After.fmtYears(l.t)}</b>${l.text}</div>`).join("")}</div>`;
+  $("afterbox").querySelectorAll("[data-as]").forEach(b => b.classList.toggle("on", +b.dataset.as === afterSpeed));
 }
 function afterFrame(dt) {
   if (!afterMode || !S.after || !afterSpeed || !$("modal").hidden) return;
-  afterAcc += afterSpeed * dt; let n = 0; while (afterAcc >= After.STEP && S.after.t < S.after.horizon && n < 400) { afterAcc -= After.STEP; After.stepAfter(S.after); n++; }
-  if (S.after.t >= S.after.horizon) { afterAcc = 0; afterSpeed = 0; }
-  if (n) { afterRender(true); paintMap(); if (S.after.t - lastAfterSave >= 500 || S.after.t >= S.after.horizon) { lastAfterSave = S.after.t; saveActive(); } }
+  const a = S.after, t0 = a.t; afterAcc += afterSpeed * dt; const yrs = Math.floor(afterAcc / After.STEP) * After.STEP; if (yrs < After.STEP) return; afterAcc -= yrs;
+  After.advanceBy(a, yrs); const nw = performance.now(); if (nw - lastAfterDraw > 120) { lastAfterDraw = nw; afterRender(true); paintMap(); }
+  const now = performance.now(); if (now - lastAfterSave > 10000) { lastAfterSave = now; saveActive(); } void t0; // 保存は実時間で間引く(巨大な経過年数でも保存量は増えない)
 }
 // ---------- 進行(速度と一時停止は別。選んだ速度は変えるまで維持) ----------
-function setSpeed(i) { speedIdx = i; settings.speed = i; saveSettings(); paused = false; head(); }
+function setSpeed(i) { speedIdx = i; settings.speed2 = i; saveSettings(); paused = false; head(); }
 function togglePause() { paused = !paused; head(); }
 function refresh(full) { head(); paintMap(); cardUpdate(); if (full || tab === "status") statusView(); if (full) { policyView(); sitesView(); logView(); sysView(); } }
 function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000); last = now;
   const blocked = !$("modal").hidden && !big;
   afterFrame(dt);
-  const out = session.frame(dt, { paused, speed: SPEEDS[speedIdx], blocked });
+  const out = session.frame(dt, { paused: preludeOn ? holdPrelude : paused, speed: preludeOn ? PRE_YPS : SPEEDS[speedIdx], blocked });
   if (out.ticks || out.started || out.ended || out.autoDecisions) { onFlowOut(out); head(); paintMap(); cardUpdate(); if (tab === "log") logView(); if (out.autoDecisions && tab === "status") statusView(); if (S.year - lastSaveY >= 25) { lastSaveY = S.year; saveActive(); } }
   else if (session.observing) renderObs();
   if (S.ended && $("modal").hidden && !S.__endShown) { S.__endShown = true; modal(); head(); }
@@ -615,5 +700,5 @@ applyTheme(settings.theme);
 initCompact();
 boot();
 window.addEventListener("pagehide", saveActive); document.addEventListener("visibilitychange", () => { if (document.hidden) saveActive(); });
-window.__game = { get session() { return session; }, startEarth, stopEarth, get afterMode() { return afterMode; }, setAfterSpeed, afterFrame, switchTheme, saveActive, SV, adopt, skipObserve, sand: { compact, get big() { return big; }, loop: sandLoop, setQuality, get bigGrains() { return bigGrains; }, get K() { return compactK; }, kick: sandKick }, refresh, get S() { return S; }, E, I, setSpeed, togglePause, applyTheme, hourglassNumbers, get settings() { return settings; }, get paused() { return paused; }, get speedIdx() { return speedIdx; } };
+window.__game = { get session() { return session; }, skipPrelude, startNewWorld, get preludeOn() { return preludeOn; }, pickColor, colorChoice, finalQuestionDone, get build() { return build; }, startEarth, stopEarth, get afterMode() { return afterMode; }, setAfterSpeed, afterFrame, switchTheme, saveActive, SV, adopt, skipObserve, sand: { compact, get big() { return big; }, loop: sandLoop, setQuality, get bigGrains() { return bigGrains; }, get K() { return compactK; }, kick: sandKick }, refresh, get S() { return S; }, E, I, setSpeed, togglePause, applyTheme, hourglassNumbers, get settings() { return settings; }, get paused() { return paused; }, get speedIdx() { return speedIdx; } };
 requestAnimationFrame(frame);

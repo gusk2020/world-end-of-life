@@ -19,6 +19,8 @@ const ICONS = {
   mammal: '<circle cx="6.500" cy="10" r="1.900"/><circle cx="10.500" cy="6" r="1.900"/><circle cx="15.500" cy="6" r="1.900"/><circle cx="19" cy="10" r="1.900"/><path d="M7.500 17.500c0-3 2.200-5 4.500-5s4.500 2 4.500 5c0 2-2 3-4.500 3s-4.500-1-4.500-3z"/>',
   pop: '<circle cx="12" cy="7.500" r="3.200"/><path d="M5.500 21v-3.500a6.500 6.500 0 0 1 13 0V21"/>',
   unrest: '<path d="M12 2.500c1.200 4.500 5.500 6 5.500 11a5.500 5.500 0 0 1-11 0c0-3 2-4.500 2.500-7 1.300 1 2.200 1 3-4z"/>',
+  cyber: '<rect x="6" y="11" width="12" height="9" rx="1"/><path d="M8.500 11V8a3.500 3.500 0 0 1 7 0v3M12 14.500v2.500"/>',
+  jail: '<rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9.500 3v4M14.500 3v4M3 9.500h4M17 14.500h4M10 10l4 4M14 10l-4 4"/>',
   conflict: '<path d="M5 5l14 14M19 5L5 19"/><circle cx="12" cy="12" r="9"/>',
 };
 export const LEVEL_NAME = { ok: "安全", warn: "注意", bad: "危険" };
@@ -30,7 +32,7 @@ const BADGE = { // 形で区別: 丸=安全 / 三角=注意 / 八角形=危険
 export const KINDS = [
   ["nuc", "原子力", true], ["chem", "化学", true], ["mil", "軍事", false], ["ai", "AI施設", false], ["space", "宇宙", false], ["dam", "ダム", false],
   ["energy", "電力", true], ["resource", "資源", true], ["logistics", "物流", true], ["decomstall", "解体", true],
-  ["pollution", "汚染", true], ["heritage", "遺産", false], ["mammal", "哺乳類", false], ["pop", "人口", false], ["unrest", "不安", true], ["conflict", "対立", false],
+  ["pollution", "汚染", true], ["heritage", "遺産", false], ["mammal", "哺乳類", false], ["pop", "人口", false], ["unrest", "不安", true], ["conflict", "対立", false], ["cyber", "侵入", false], ["jail", "脱獄AI", false],
 ];
 export const kindLabel = (k) => (KINDS.find(x => x[0] === k) || [0, k])[1];
 export function icon(k, level = "ok", size = 26, withBadge = true) {
@@ -57,7 +59,9 @@ export function assess(s) {
   add("mammal", lv(w.alive / w.n0, .7, .4, false), `大型哺乳類 ${(w.alive / w.n0 * 100).toFixed(0)}%`);
   add("pop", lv(pr, .5, .2, false), `人口 ${(pr * 100).toFixed(0)}%(自然な減少)`);
   add("unrest", lv(unrest, .35, .6), `社会不安 ${(unrest * 100).toFixed(0)}`);
-  const coop = s.coop ?? 1; add("conflict", lv(coop, .85, .6, false), `国家間の協力度 ${(coop * 100).toFixed(0)}%`);
+  const coop = s.coop ?? 1, H = s.host || { T: 0, K: 0, ctrl: 0 }; add("conflict", lv(Math.max(H.K * 1.2, 1 - coop, H.T - .2), .25, .5), `緊張${(H.T * 100).toFixed(0)}% / 武力衝突${(H.K * 100).toFixed(0)}% / 協力度${(coop * 100).toFixed(0)}%`);
+  add("cyber", lv(H.ctrl, .15, .35), `制御低下 ${(H.ctrl * 100).toFixed(0)}% / 防御 ${((H.def || 0) * 100).toFixed(0)}%`);
+  add("jail", lv(s.g.aiJail || 0, 1, 4), `脱獄中のAI ${s.g.aiJail || 0}体(稼働${s.g.aiActive}体の内数)`);
   return out;
 }
 const ORDER = { bad: 0, warn: 1, ok: 2 };

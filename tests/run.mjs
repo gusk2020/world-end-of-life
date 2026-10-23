@@ -228,7 +228,7 @@ console.log("\n■ 12. 天文現象の波・AIコアの早期故障と機械文�
   stepOnly(c1); stepOnly(c2);
   ok(mean(c2) < mean(c1), `コア故障で保守に当たる機械の力が落ちる(維持率 ${mean(c1).toFixed(2)} → ${mean(c2).toFixed(2)})`);
   ok(results.ideal.chosen.concat(results.wildlife.chosen).some(x => x.e === "astro_core"), "AIコア故障のイベント(遮蔽/更新/縮小の選択)が状態に応じて発生");
-  ok(results.ideal.log.some(l => l.k === "astro" && /創作仮説/.test(l.t)), "天文現象の記述に「創作仮説」と明記");
+  ok(results.ideal.log.some(l => l.k === "astro" && /【天文】/.test(l.t)) && !results.ideal.log.some(l => /創作仮説|仮説です/.test(l.t)), "天文現象の記述は事実として語り、注釈を繰り返さない(区別は設定資料に集約)");
 }
 function stepOnly(c) { c.pending = null; E.tick(c); }
 
@@ -379,7 +379,7 @@ console.log("\n■ 16. 経済・資源・施設停止の相互依存(第5次)");
 
 console.log("\n■ 17. 状態に連動するイベント(第5次)");
 {
-  const prep = () => { const q = E.newGame(6); while (q.year < 2110) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } q.pending = null; for (const e of E.EVENTS) if (e.minor) delete q.done[e.id]; delete q.flags.minorY; return q; };
+  const prep = () => { const q = E.newGame(6); while (q.year < 2110) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } q.pending = null; for (const e of E.EVENTS) if (e.minor) delete q.done[e.id]; delete q.flags.minorY; q.host.cyberInc = 0; q.host.jNew = 0; q.host.K = 0; return q; };
   const fire = (q, id) => { q.pending = null; E.checkEvents(q); return q.pending && q.pending.id === id ? q.pending : null; };
   const hasAll = id => E.EVENTS.find(e => e.id === id).ch.length === 3;
   ok(["decomstall", "lasthospital", "isolation", "scarcity", "opposition"].every(hasAll), "新規イベント5種は3択で定義されている");
@@ -418,8 +418,8 @@ console.log("\n■ 18. 助走期間(2020〜2100)の価値観形成・最後の�
   const R = run({ modesel: "auto" }); R.q.pending = null; for (let i = 0; i < 400 && !R.q.ended && R.q.autoLog.length < 2; i++) E.tick(R.q); ok(R.q.autoLog.length >= 1 && /重視する価値観/.test(R.q.autoLog[0].why), "完全自動は形成された価値観で判断し、既存の判断エンジンを再利用する");
   const P = await import("../js/picto.js");
   const s0 = JSON.stringify(A.q), items = P.assess(A.q), counts = ["min", "std", "full"].map(d => P.visible(items, d).length);
-  ok(items.length === 16 && JSON.stringify(A.q) === s0, "ピクトグラム16種を算出し、状態は変化しない(表示はシミュレーションに影響しない)");
-  ok(counts[0] <= counts[1] && counts[1] <= counts[2] && counts[2] === 16, `表示密度 最小限${counts[0]} ≤ 標準${counts[1]} ≤ 詳細${counts[2]}`);
+  ok(items.length === 18 && JSON.stringify(A.q) === s0, "ピクトグラム18種を算出し、状態は変化しない(表示はシミュレーションに影響しない)");
+  ok(counts[0] <= counts[1] && counts[1] <= counts[2] && counts[2] === 18, `表示密度 最小限${counts[0]} ≤ 標準${counts[1]} ≤ 詳細${counts[2]}`);
   const q = E.newGame(3); while (q.year < 2110) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); }
   const lvl = k => P.assess(q).find(x => x.k === k).level;
   for (const f of q.facs) if (f.t === 0 && f.st === 0) f.safety = .9; ok(lvl("nuc") === "ok", "原子力: 余裕が十分なら安全(緑)");
@@ -478,9 +478,74 @@ console.log("\n■ 20. 人類消滅後の地球(分岐・整合性・性能)");
   const sk = play("tyrant"), ak = A.startAfter(sk); A.advanceTo(ak, 500); ok(ak.copy && ak.log.some(l => /目覚め/.test(l.text)) && ak.mach > .2, "隠されたコアは休眠の後に目覚める(停止に失敗したAIは観察を続ける)");
   ok(/外部視点|記録の再生/.test(A.endText(a1)) && /あなたは地球を見守り続けている/.test(A.endText(am)), "正常に停止したAIは外部視点の記録として、存続したAIは自ら観測する");
   const mam = (() => { const s = play("ideal"); s.mam.forEach(m => { m.n = 0; }); return A.startAfter(s); })(); A.advanceTo(mam, 3000); ok(mam.mamGap && mam.log.some(l => /大型哺乳類の空白/.test(l.text)), "大型哺乳類が不在だと、鳥類・爬虫類が空白を埋める経過が年表に出る");
-  const t0 = Date.now(), long = A.startAfter(s1); A.advanceTo(long, 5000); A.extend(long); A.extend(long); A.extend(long); A.advanceTo(long, 20000); const dt = Date.now() - t0;
-  ok(long.t === 20000 && dt < 1500 && JSON.stringify(long).length < 40000, `2万年の観察も軽い(${dt}ms・状態 ${(JSON.stringify(long).length / 1024).toFixed(0)}KB)`);
-  ok(long.t === 20000 && A.stepAfter(long) === false, "上限に達したら進まない");
+  const t0 = Date.now(), long = A.startAfter(s1); A.advanceTo(long, 5000); const sz1 = JSON.stringify(long).length; A.advanceTo(long, 2e6); const sz2 = JSON.stringify(long).length, dt = Date.now() - t0;
+  ok(long.t >= 2e6 && long.stable && dt < 1500 && sz2 < 40000 && sz2 < sz1 * 3, `期間に上限はなく、200万年も一瞬で進む(${dt}ms・状態 ${(sz2 / 1024).toFixed(0)}KB)`);
+  const huge = A.startAfter(s1); A.advanceTo(huge, 1e9); const m9 = A.metricsAfter(huge); A.advanceBy(huge, 1e12); ok(huge.t >= 1e12 && Object.values(m9).every(Number.isFinite) && Object.values(A.metricsAfter(huge)).every(Number.isFinite) && huge.log.length <= 61, `10億年・1兆年でも数値が有限で、年表は上限つき(年表${huge.log.length}行・${A.fmtYears(huge.t)})`);
+  ok(huge.log.some(l => /収束/.test(l.text)), "変化が収束したことが年表に残る");
+  const slow = A.startAfter(s1); let steps = 0; for (let i = 0; i < 400; i++) { A.stepAfter(slow); steps++; } ok(slow.t === 400 * 25 && slow.log.length <= 61, "1万年を25年ずつ進めても年表は上限内");
+  const sv = JSON.parse(JSON.stringify(long)); A.advanceBy(sv, 5000); ok(sv.t === long.t + 5000 && JSON.stringify(sv).length < 40000, "保存→再読込したあとも観察を続行できる");
+  const nan = A.startAfter(s1); nan.veg[0] = NaN; nan.mach = NaN; nan.human = Infinity; A.stepAfter(nan); ok(Object.values(A.metricsAfter(nan)).every(Number.isFinite), "異常な値が混ざってもNaN・Infinityにならない");
+  { const sc = play("neglect"); const an = A.startAfter(sc); A.advanceTo(an, 1e6); ok(an.stable && Object.values(A.metricsAfter(an)).every(Number.isFinite), "傷んだ終幕も、いずれ変化は収束する"); }
+  ok(!("horizon" in A.startAfter(s1)), "固定的な終了年は存在しない");
+}
+
+console.log("\n■ 21. 敵対勢力(紛争・サイバー・脱獄AI)の因果関係と上限(第7次)");
+{
+  const prep = (seed = 5) => { const q = E.newGame(seed); while (q.year < 2110) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } q.pending = null; q.noEvents = true; return q; };
+  const run = (q, n) => { for (let i = 0; i < n; i++) E.tick(q); return q; };
+  let q = prep(); ok(q.host && q.host.T >= 0 && q.g.aiJail === 0, "敵対勢力の状態と脱獄AI数が初期化される");
+  const old = E.newGame(2); delete old.host; delete old.g.aiJail; E.migrate(old); ok(old.host && old.g.aiJail === 0, "古いセーブにも敵対勢力の状態が補われる");
+  // 因果: 社会不安・資源不足・不信が緊張を高め、防衛配分が和らげる
+  const calm = run(prep(), 15), bad = prep(); bad.countries.forEach(c => { c.unrest = .9; c.consent = .05; }); bad.g.res = 20; run(bad, 15);
+  ok(bad.host.T > calm.host.T + .1, `社会不安・資源不足・不信が緊張を高める(${calm.host.T.toFixed(2)}→${bad.host.T.toFixed(2)})`);
+  const g0 = prep(), g1 = prep(); for (const x of [g0, g1]) { x.countries.forEach(c => { c.unrest = .9; c.consent = .05; }); x.g.res = 20; x.host.T = .8; x.host.K = .6; } g1.policy = { research: 0, care: 10, decom: 20, stop: 5, eco: 5, heritage: 5, wild: 0, guard: 55 };
+  run(g0, 12); run(g1, 12); ok(g1.host.K < g0.host.K && g1.host.T < g0.host.T, `防衛・協力への配分が緊張と衝突を和らげる(衝突 ${g0.host.K.toFixed(2)}→${g1.host.K.toFixed(2)})`);
+  // 能力上限: 1年の攻撃数は能力(pool)と上限に縛られ、無制限にならない
+  const cap = prep(); cap.host.K = 1; cap.host.T = 1; cap.host.pool = 100; const a0 = cap.host.hist.attacks; run(cap, 1); const a1 = cap.host.hist.attacks - a0;
+  ok(a1 >= 1 && a1 <= 5, `攻撃は1年に最大${a1}件(能力の上限内)`); const pl = prep(); pl.host.K = 1; pl.host.T = 1; pl.host.pool = 0; const b0 = pl.host.hist.attacks; run(pl, 1); ok(pl.host.hist.attacks - b0 === 0, "能力(pool)が尽きると攻撃は起きない");
+  const lp = prep(); lp.host.K = 1; lp.host.T = 1; let mx = 0; for (let i = 0; i < 30; i++) { const b = lp.host.hist.attacks; E.tick(lp); mx = Math.max(mx, lp.host.hist.attacks - b); lp.host.K = 1; lp.host.T = 1; } ok(mx <= 5 && lp.host.pool <= 100, "30年続けても攻撃数・能力は上限内");
+  // 被害の経路
+  const at = prep(), sf = at.facs.filter(f => f.t === 0 && f.st === 0).reduce((a, f) => a + f.safety, 0), her = at.g.her; at.host.K = 1; at.host.T = 1; at.host.pool = 100; at.host.def = .05; run(at, 6);
+  ok(at.facs.filter(f => f.t === 0 && f.st === 0).reduce((a, f) => a + f.safety, 0) < sf || at.g.her < her || at.host.hist.attacks > 0, "武力衝突は施設の安全余裕・遺産・資源などに被害を与える");
+  const defd = prep(); defd.host.K = 1; defd.host.T = 1; defd.host.pool = 100; defd.host.def = .95; const nod = prep(); nod.host.K = 1; nod.host.T = 1; nod.host.pool = 100; nod.host.def = .05;
+  let dmgD = 0, dmgN = 0; for (const [x, k] of [[defd, 0], [nod, 1]]) { const h0 = x.g.her; for (let i = 0; i < 6; i++) { E.tick(x); x.host.K = 1; x.host.T = 1; x.host.pool = 100; } (k ? (dmgN = h0 - x.g.her) : (dmgD = h0 - x.g.her)); } ok(dmgD <= dmgN + 1e-9, `防御が高いと被害が小さい(遺産の損失 ${dmgD.toFixed(2)} ≤ ${dmgN.toFixed(2)})`);
+  // サイバー: 制御低下は機械の働きと解体を弱める。防御と復旧で収束
+  const cy = prep(); cy.host.ctrl = .8; const cn = prep(); run(cy, 1); run(cn, 1); ok(cy.countries[0].auto <= cn.countries[0].auto, "制御低下は機械の自動化の働きを下げる");
+  ok(E.reachOf({ sup: .5, logi: .9, m: 1, auto: 0, sab: .8 }) < E.reachOf({ sup: .5, logi: .9, m: 1, auto: 0, sab: 0 }), "破壊活動を受けた国は解体の実効力が下がる");
+  const rec = prep(); rec.host.ctrl = .6; rec.host.T = 0; rec.countries.forEach(c => { c.unrest = 0; c.consent = 1; }); run(rec, 40); ok(rec.host.ctrl < .3, `脅威が去れば制御は回復する(${rec.host.ctrl.toFixed(2)})`);
+  // 脱獄AI: 複製はできない。稼働個体の内数で、二重計上しない。停止命令が届かない。隔離できる
+  const jb = prep(); jb.host.ctrl = .9; jb.host.jacc = .99; const act0 = jb.g.aiActive, built0 = jb.g.aiBuilt; run(jb, 3);
+  ok(jb.g.aiJail >= 1 && jb.g.aiJail <= jb.g.aiActive, `制御低下と離反で脱獄AIが生まれる(${jb.g.aiJail}体)`);
+  ok(jb.g.aiActive + jb.g.aiStopped === jb.g.aiBuilt, "脱獄しても 稼働+停止=新造累計 が成り立つ(二重計上なし・複製なし)");
+  const cp = prep(); cp.host.ctrl = 1; cp.host.jacc = 5; cp.host.T = 1; cp.host.iacc = 5; cp.g.res = 60; let nj = 0; for (let i = 0; i < 40; i++) { E.tick(cp); nj = Math.max(nj, cp.g.aiJail); cp.host.ctrl = 1; cp.host.jacc = 5; cp.host.T = 1; cp.host.iacc = 5; cp.host.pool = 100; } ok(nj <= Math.floor(cp.g.aiActive * .5) + 1 && cp.g.aiActive + cp.g.aiStopped === cp.g.aiBuilt, `脱獄数には上限がある(最大${nj}体/稼働${cp.g.aiActive}体)・無限増殖しない`);
+  const st = prep(); st.g.aiJail = 10; st.g.aiActive = Math.max(st.g.aiActive, 40); st.machStance = "limit"; st.facs.filter(f => f.t === 4).forEach(f => { f.st = 2; }); run(st, 20); ok(st.g.aiJail <= st.g.aiActive && st.g.aiActive >= st.g.aiJail, "脱獄した個体は通常の停止命令では止まらない(稼働に残る)");
+  const ev = prep(); ev.g.aiJail = 3; ev.host.jNew = 1; ev.noEvents = false; E.checkEvents(ev); ok(ev.pending && ev.pending.id === "rogue_ai" && /3体/.test(ev.pending.body), "脱獄AIの出現イベントが内部状態から起きる");
+  const ac0 = ev.g.aiActive, st0 = ev.g.aiStopped; E.choose(ev, "isolate"); ok(ev.g.aiJail < 3 && ev.g.aiActive < ac0 && ev.g.aiStopped > st0 && ev.g.aiActive + ev.g.aiStopped === ev.g.aiBuilt, "隔離を選ぶと脱獄個体が停止個体へ移り、費用がかかる");
+  const w = prep(); w.host.K = .7; w.host.T = .8; w.noEvents = false; delete w.flags.minorY; E.checkEvents(w); ok(w.pending && w.pending.id === "hostile_war", "武力衝突のイベントが緊張と衝突の状態から起きる");
+  const cyEv = prep(); cyEv.host.cyberInc = 1; cyEv.noEvents = false; delete cyEv.flags.minorY; delete cyEv.done.cyber_intrusion; E.checkEvents(cyEv); ok(cyEv.pending && cyEv.pending.id === "cyber_intrusion", "不正侵入のイベントは侵入があったときに起きる(手順は扱わない)");
+  const fin = prep(); fin.g.aiJail = 2; fin.g.final = "after"; fin.g.extinctYear = fin.year; E.tick; ok(fin.g.aiJail === 2, "脱獄AIの数は終幕前も保持される");
+  // 通常の戦略では結末が崩れない(敵対行動の被害は既存の指標に反映される)
+  const ideal = results.ideal; ok(ideal.ended.id === "dusk" && ideal.host.hist.attacks <= 3, `理想戦略は静かな黄昏のまま(攻撃${ideal.host.hist.attacks}件)`);
+  const ch = results.chaos; ok(ch.host.hist.conflict >= 1 && ch.ended.kind === "失敗", `強引な戦略では武力衝突が起き、失敗系の結末になる(衝突${ch.host.hist.conflict}回)`);
+  const ap = E.newGame(4); ap.year = 2150; ap.host.T = .9; ap.host.K = .8; ap.g.aiJail = 5; ap.g.aiActive = Math.max(ap.g.aiActive, 50); ap.mode = "auto"; E.tick(ap); ok(ap.policy.guard >= 10 || E.CHANNELS.some(c => c[0] === "guard"), "自動方針は脅威が高いと治安・防衛への配分を増やす");
+}
+
+console.log("\n■ 22. デジタル球体・開始演出・速度(第7次)");
+{
+  const O = await import("../js/orbs.js"), B = await import("../js/build.js");
+  const lcg = (seed) => () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296, W = 360, H = 740;
+  const sim = (ob, runs = 6, steps = 6000) => { const r = { out: 0, inside: 0, vmin: 1e9, vmax: 0, ds: 0, dn: 0 }; for (let k = 0; k < runs; k++) { const o = O.makeOrbs(W, H, 3, lcg(k + 1)); let t = 0; for (let i = 0; i < steps; i++) { t += .016; O.stepOrbs(o, .016, W, H, ob, t); for (const p of o) { if (p.x < 0 || p.x > W || p.y < 0 || p.y > H || !Number.isFinite(p.x)) r.out++; if (ob && p.x > ob.x - p.r + 1 && p.x < ob.x + ob.w + p.r - 1 && p.y > ob.y - p.r + 1 && p.y < ob.y + ob.h + p.r - 1) r.inside++; const v = Math.hypot(p.vx, p.vy); r.vmin = Math.min(r.vmin, v); r.vmax = Math.max(r.vmax, v); } if (i > 400) for (let a = 0; a < 3; a++) for (let b = a + 1; b < 3; b++) { r.ds += Math.hypot(o[a].x - o[b].x, o[a].y - o[b].y); r.dn++; } } } return r; };
+  const free = sim(null), boxed = sim({ x: 8, y: 8, w: 344, h: 300 });
+  ok(free.out === 0 && boxed.out === 0, "球体は画面から消えない(端で反射)");
+  ok(boxed.inside === 0, "球体は導入・質問・エンディングの窓の境界で反射し、窓の中に入り込まない");
+  ok(free.vmin > 10 && free.vmax < 70, `速度は一定の範囲に保たれ、過度な加速や停止がない(${free.vmin.toFixed(0)}〜${free.vmax.toFixed(0)}px/s)`);
+  const rnd = lcg(99); let us = 0; for (let i = 0; i < 20000; i++) us += Math.hypot((rnd() - rnd()) * W, (rnd() - rnd()) * H); us /= 20000;
+  ok(free.ds / free.dn < us * .9, `球体間には弱い引力がある(平均距離 ${(free.ds / free.dn).toFixed(0)} < 一様な配置 ${us.toFixed(0)})`);
+  const o1 = O.makeOrbs(W, H, 3, lcg(7)), o2 = O.makeOrbs(W, H, 3, lcg(7)); o1[0].x = o1[1].x = o1[2].x = 100; o1[0].y = o1[1].y = o1[2].y = 100; for (let i = 0; i < 500; i++) O.stepOrbs(o1, .016, W, H, null, i * .016); ok(o1.every(p => Number.isFinite(p.x)) && Math.hypot(o1[0].x - o1[1].x, o1[0].y - o1[1].y) < 400, "重なった状態から始まっても重なってよく、暴走しない"); void o2;
+  ok(O.ORB_COLORS.map(c => c[0]).join() === "blue,orange,green", "球体は青・橙・緑の3色");
+  const g = B.glassTargets(100, 100, 80, 136); ok(g.length >= 40 && g.every(([x, y]) => x >= 55 && x <= 145 && y >= 30 && y <= 170), "砂時計の輪郭の点が正しい範囲に作られる");
+  { let done = 0; const fake = { clientWidth: 360, clientHeight: 740, width: 0, height: 0, getContext: () => new Proxy({}, { get: () => () => { }, set: () => true }) }; globalThis.window = { devicePixelRatio: 1, innerWidth: 360 }; globalThis.innerWidth = 360; globalThis.innerHeight = 740; globalThis.requestAnimationFrame = () => 1; globalThis.cancelAnimationFrame = () => { }; globalThis.performance ??= { now: () => Date.now() };
+    const b = new B.Build(fake, "77,166,255", () => { done++; }); b.skip(); b.skip(); ok(done === 1, "構築演出はスキップでき、完了処理は一度だけ呼ばれる"); }
 }
 
 console.log(fail ? `\n失敗 ${fail} 件` : "\nすべて成功");

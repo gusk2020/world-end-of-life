@@ -22,7 +22,7 @@
     <button class="gl" data-g="m" aria-label="大型哺乳類の砂時計を拡大"><canvas id="gm" width="28" height="40" aria-hidden="true"></canvas><span class="gt"><span class="gn">哺乳類 <i id="m_scale"></i></span><span>生<b id="m_alive"></b></span><span>死<b id="m_dead"></b></span></span></button>
   </div>
   <div class="speed" id="speed">
-    <button id="pause" aria-label="一時停止/再開">⏸</button><button data-s="1">×1</button><button data-s="2">×4</button><button data-s="3">×20</button><button data-s="4">×100</button>
+    <button id="pause" aria-label="一時停止/再開">停止</button><button data-s="1">×25</button><button data-s="2">×100</button><button data-s="3">×250</button><button data-s="4">×1000</button>
   </div>
   <div id="spdlabel" class="small"></div>
   <div id="ticker" class="ticker" role="status"></div>
@@ -47,6 +47,9 @@
 <nav id="tabs">
   <button data-t="map" class="on">地図</button><button data-t="status">状況</button><button data-t="policy">方針</button><button data-t="sites">遺産</button><button data-t="log">年表</button><button data-t="sys">設定</button>
 </nav>
+<div id="pre" hidden><div id="precard"><div class="preyear" id="preyear"></div><div class="obsprog"><i id="prebar"></i></div><div class="small" id="prestat"></div><div class="small dim" id="prelog"></div></div></div>
+<canvas id="orbcv" hidden aria-hidden="true"></canvas>
+<canvas id="buildcv" hidden aria-hidden="true"></canvas><button id="buildskip" hidden>スキップ</button>
 <div id="resbar" hidden role="status"></div>
 <div id="obsbar" hidden role="status" aria-live="polite"><div class="obsrow"><span id="obstext"></span><button id="obsskip">スキップ</button></div><div class="obsprog"><i id="obsfill"></i></div><button id="obsauto" class="link" hidden></button></div>
 <div id="modal" class="modal" hidden><div class="box" id="mbox"></div></div>
