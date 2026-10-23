@@ -25,7 +25,7 @@ export class Session {
   get observing() { return this.flow.active; }
   startObserve() { if (!this.prefs.sec) return; this.flow.start(); this.S.holdAuto = true; this.acc = 0; } // sec=0 は観察なし(テストの基準用。画面からは選べない)
   // dt: 実時間の経過(秒)。paused: 手動の一時停止。speed: ユーザー設定の速度(年/秒)。blocked: 他の画面で止めている
-  frame(dt, { paused, speed, blocked }) {
+  frame(dt, { paused, speed, blocked, budgetMs }) {
     const S = this.S, out = { ticks: 0, autoDecisions: 0, started: false, ended: false };
     if (!S) return out;
     if (S.ended) { if (this.flow.active) { this.flow.cancel(); S.holdAuto = false; } return out; }
@@ -38,17 +38,19 @@ export class Session {
       return out;
     }
     if (paused || S.pending) return out;                           // 手動イベントの表示は UI が行う
-    this.acc += speed * dt; this.stepTicks(out);
+    this.acc += speed * dt; this.stepTicks(out, budgetMs);
     if (out.autoDecisions > 0 && !paused && !S.ended) { this.startObserve(); out.started = this.flow.active; }
     return out;
   }
-  stepTicks(out) {
-    const S = this.S; let n = 0;
+  // budgetMs: 1フレームに使う計算時間の上限。高速進行で描画が止まらないよう、時間で区切って次のフレームへ回す(超過分の待ちは捨てる)
+  stepTicks(out, budgetMs) {
+    const S = this.S; let n = 0; const t0 = budgetMs ? performance.now() : 0;
     while (this.acc >= 1 && !S.pending && !S.ended && n++ < 200) {
       this.acc--; const a0 = S.autoLog.length; this.E.tick(S); out.ticks++; if (this.afterTick) this.afterTick(S);
       if (S.autoLog.length > a0) { out.autoDecisions++; if (!this.flow.active) { this.acc = 0; break; } } // 自動判断のあとは観察へ(続きを一気に進めない)
+      if (budgetMs && performance.now() - t0 > budgetMs) break;
     }
-    if (this.acc > 5) this.acc = 0;
+    if (this.acc > 5) this.acc = budgetMs ? Math.min(this.acc, 3) : 0; // 処理が追いつかない分は持ち越さない(時間が遅れて見えるだけで、順序は変わらない)
   }
   // 観察の終了: 保留していたイベントを処理する。自動で処理できるものは自動で、手動のものは UI がモーダルで尋ねる
   endObserve(paused, out) {

@@ -33,7 +33,7 @@ function rnd(s) { // mulberry32。状態をs.rngに保持
 export function newGame(seed = 1) {
   const s = {
     v: 3, seed, rng: seed | 0, year: START_YEAR, countries: [], facs: [], log: [], chosen: [],
-    host: hostInit(), pending: null, done: {}, flags: {}, ended: null, hist: [], post: 0, mode: "manual", wildStance: "balanced", decomOrder: "hazard", autoLog: [], series: { h: [], a: [], m: [] }, mam: initMammals(),
+    host: hostInit(), hostPolicy: { ...HOST_POLICY_DEFAULT }, pending: null, done: {}, flags: {}, ended: null, hist: [], post: 0, mode: "manual", wildStance: "balanced", decomOrder: "hazard", autoLog: [], series: { h: [], a: [], m: [] }, mam: initMammals(),
     ai: { cap: 10, insight: 10, align: 20, trust: 55, sp: 0.1, focus: "world" },
     g: { pl: 40, bio: 78, scar: 0, res: 100, her: 100, rsr: 0, ark: 0, mach: 5, stopReady: 0, gdp0: 0, P0: 0,
       arch: 0, accidents: 0, wars: 0, sov: 1, overrides: 0, hpAcc: 0, hpW: 0, peak: 0, unrestAcc: 0, unrestN: 0, lastC: null, lastYear: null,
@@ -89,7 +89,7 @@ export function migrate(s) { // 旧セーブ(v1)の読み込み
   if (g.hBorn === undefined) { const P = total(s); g.hBorn = Math.max(0, P - g.P0); g.hDead = Math.max(0, g.P0 - P); }
   if (g.sitesBio === undefined) { g.sitesBio = 0; g.hMod = 0; }
   if (g.aiActive === undefined) aiInit(s);
-  if (!s.host) s.host = hostInit(); if (g.aiJail === undefined) g.aiJail = 0;
+  if (!s.host) s.host = hostInit(); else { const h0 = hostInit(); s.host = { ...h0, ...s.host, fac: { ...h0.fac, ...(s.host.fac || {}) }, str: { ...h0.str, ...(s.host.str || {}) }, hist: { ...h0.hist, ...(s.host.hist || {}) } }; } if (!s.hostPolicy) s.hostPolicy = { ...HOST_POLICY_DEFAULT }; if (g.aiJail === undefined) g.aiJail = 0;
   if (!s.mam) s.mam = initMammals();
   if (!s.series) s.series = { h: [], a: [], m: [] };
   if (!s.mode) s.mode = "manual"; if (!s.wildStance) s.wildStance = "balanced"; if (!s.decomOrder) s.decomOrder = "hazard"; if (s.year >= PROGRAM) for (const ev of EVENTS) if (ev.prelude && s.done[ev.id] === undefined) s.done[ev.id] = s.year; // 終活期に入った古いセーブに助走期間の質問を出さない if (!s.autoLog) s.autoLog = [];
@@ -102,6 +102,8 @@ export function migrate(s) { // 旧セーブ(v1)の読み込み
 }
 export const total = (s) => s.countries.reduce((p, c) => p + c.y + c.a + c.o, 0);
 export const cpop = (c) => c.y + c.a + c.o;
+// 国×施設種ごとの稼働割合を1回の走査で作る(国ごとに全施設を数え直さない)
+const frTable = (s) => { const n = s.countries.map(() => [0, 0, 0, 0, 0, 0]), r = s.countries.map(() => [0, 0, 0, 0, 0, 0]); for (const f of s.facs) { n[f.c][f.t]++; if (f.st === 0) r[f.c][f.t]++; } return (ci, t) => n[ci][t] ? r[ci][t] / n[ci][t] : 0; };
 const fracRun = (s, ci, t) => { let n = 0, r = 0; for (const f of s.facs) if (f.c === ci && f.t === t) { n++; if (f.st === 0) r++; } return n ? r / n : 0; };
 
 // ---------- 年次更新 ----------
@@ -118,43 +120,73 @@ export function flowOf(s) {
 
 
 // ---------- 敵対勢力(抽象化した状態遷移。現実の手段・手順は扱わない) ----------
-// 緊張T・武力衝突K・サイバー侵入(制御低下ctrl)・脱獄AI(aiJail)。敵対側の行動には能力上限(pool)があり、防衛・協力・社会不安の緩和で収束する。
-export const hostInit = () => ({ T: .05, K: 0, ctrl: 0, def: .1, pool: 20, iacc: 0, jacc: 0, nacc: 0, jbHos: .3, cyberInc: 0, jNew: 0, hist: { conflict: 0, attacks: 0, cyber: 0, jail: 0, illegal: 0, isolated: 0, heritage: 0, wild: 0 } });
+// 緊張T・武力衝突K・サイバー侵入(制御低下ctrl)・脱獄AI(aiJail)に加え、4つの勢力が目的・資源(pool)・行動限界を持って動く。
+//  反対派: 終活への反対と生存への希望(解体を急ぐほど・不信と不安が強いほど強まり、対話と支援で弱まる)。目的は解体を止めること。
+//  武装勢力: 資源と施設の確保(緊張と衝突から)。サイバー犯罪集団: 管理システムと施設の掌握。脱獄AI: 自律と存続。
+// 通常はプレイヤーの基本方針(防衛・外交・サイバー)と配分で自動的に対処され、予兆が出る。重大事件だけが個別の判断になる。
+export const HOST_POLICY_DEFAULT = { defense: "std", diplomacy: "mid", cyber: "std" };
+export const HOST_POLICY_NAMES = { defense: { light: "最小限", std: "標準", strong: "厳重" }, diplomacy: { dialogue: "対話重視", mid: "標準", firm: "毅然" }, cyber: { min: "最小限", std: "標準", high: "厳重" } };
+export const FACTIONS = { opp: "反対派(終活への反対・生存への希望)", raid: "武装勢力(資源と施設の確保)", cyb: "サイバー犯罪集団(管理の掌握)", rog: "脱獄AI(自律と存続)" };
+export const hostInit = () => ({ T: .05, K: 0, ctrl: 0, def: .1, pool: 20, iacc: 0, jacc: 0, nacc: 0, jbHos: .3, cyberInc: 0, jNew: 0, sabNew: 0, seizedNew: 0, herNew: 0, cool: 0, slow: 0,
+  fac: { opp: { pool: 10 }, raid: { pool: 10 }, cyb: { pool: 10 }, rog: { pool: 5 } }, str: { opp: 0, raid: 0, cyb: 0, rog: 0 }, warn: [],
+  hist: { conflict: 0, attacks: 0, cyber: 0, jail: 0, illegal: 0, isolated: 0, heritage: 0, wild: 0, sabotage: 0, lostProg: 0, restarts: 0, seized: 0, regained: 0, stopSabotage: 0 } });
+const FCOST = { opp: 15, raid: 20, cyb: 25, rog: 12 };
 function hostileStep(s, sh, prog) {
-  const g = s.g, H = s.host, P = Math.max(1, total(s)), live = s.countries.filter(c => !c.extinct), ph = prog ? 1 : .3;
+  const g = s.g, H = s.host, P = Math.max(1, total(s)), live = s.countries.filter(c => !c.extinct), ph = prog ? 1 : .3, hp = s.hostPolicy || HOST_POLICY_DEFAULT;
   const wm = (f) => live.reduce((a, c) => a + f(c) * cpop(c), 0) / P;
   const U = wm(c => c.unrest), Cn = wm(c => c.consent), scarcity = clamp((50 - g.res) / 50, 0, 1), distrust = clamp((1 - Cn) * .7 + (1 - g.sov) * .3, 0, 1);
   const gs = sh.guard || 0, deesc = clamp(gs * 2.2, 0, .5), jbShare = g.aiJail / Math.max(10, g.aiActive);
-  // 緊張: 不安・資源不足・不信から生まれ、防衛と協力への配分で和らぐ
-  H.T = clamp(H.T + (clamp(.7 * U + .3 * scarcity + .3 * distrust, 0, 1) * (1 - .6 * deesc) - H.T) * .06 - deesc * .03 * H.T, 0, 1);
+  const dm = { light: -.12, std: 0, strong: .15 }[hp.defense] || 0, cm = { min: -.1, std: 0, high: .15 }[hp.cyber] || 0, dip = { dialogue: .72, mid: 1, firm: 1.2 }[hp.diplomacy] || 1;
+  // 基本方針の費用: 厳重な防衛と警備は資源を、サイバー対策は物流の細かな余裕を、対話は時間(解体の進み)を使う
+  if (prog) { if (hp.defense === "strong") g.res = clamp(g.res - .012, 0, 100); if (hp.cyber === "high") g.res = clamp(g.res - .006, 0, 100); if (hp.diplomacy === "dialogue") g.res = clamp(g.res - .004, 0, 100); if (hp.diplomacy === "firm") for (const c of live) c.unrest = clamp(c.unrest + .0006, 0, 1); }
+  H.T = clamp(H.T + (clamp(.7 * U + .3 * scarcity + .3 * distrust, 0, 1) * (1 - .6 * deesc) * (hp.diplomacy === "dialogue" ? .85 : 1) - H.T) * .06 - deesc * .03 * H.T, 0, 1);
   let mil = 0, milAll = 0; for (const f of s.facs) if (f.t === 3) { milAll++; if (f.st === 0) mil++; } const milFrac = milAll ? mil / milAll : 0;
   const K0 = H.K; H.K = clamp(H.K + .35 * Math.max(0, H.T - .3) * (.4 + .6 * milFrac) * (1 - deesc) - (.08 + .2 * deesc) * H.K, 0, 1);
   if (K0 < .4 && H.K >= .4) { H.hist.conflict++; addLog(s, `【武力衝突】国家間の緊張(${(H.T * 100).toFixed(0)})が高まり、武力衝突が広がり始めた。`, "major"); }
-  // サイバー: 侵入圧力は脅威と防御の差。制御低下は復旧で戻る
   H.def = clamp(H.def - .002 + gs * .02, .05, .95);
-  const D = clamp(.15 + .5 * clamp(gs * 3, 0, 1) + .25 * s.ai.cap / 100 + H.def, 0, .95), C = clamp(.35 * H.T + .9 * jbShare + .08 * distrust, 0, 1), press = C * (1 - D) * ph;
-  H.ctrl = clamp(H.ctrl + press * .05 - .04 * H.ctrl * (.5 + .5 * D), 0, 1);
+  const D = clamp(.15 + .5 * clamp(gs * 3, 0, 1) + .25 * s.ai.cap / 100 + H.def + dm, 0, .95), Dcy = clamp(D + cm, 0, .95), C = clamp(.35 * H.T + .9 * jbShare + .08 * distrust, 0, 1), press = C * (1 - Dcy) * ph;
+  H.ctrl = clamp(H.ctrl + press * .05 - .04 * H.ctrl * (.5 + .5 * Dcy), 0, 1);
   H.nacc += press; if (H.nacc >= 1) { H.nacc -= 1; H.hist.cyber++; H.cyberInc++; H.ctrl = clamp(H.ctrl + .08, 0, 1); addLog(s, `【不正侵入】管理システムに不正な侵入があった。制御低下${(H.ctrl * 100).toFixed(0)}%。`, "major"); }
-  // 脱獄AI: 制御の低下と不信が個体の離反を生む。複製はできないので、違法な新造は資源と能力上限に縛られる
   const cap = Math.floor(g.aiActive * .5);
   H.jacc += clamp(.04 * H.ctrl + .015 * press + (s.machStance === "expand" ? .004 : 0), 0, .2) * (g.aiActive > 1 ? 1 : 0);
   if (H.jacc >= 1 && g.aiJail < cap) { H.jacc -= 1; g.aiJail++; H.hist.jail++; H.jNew++; H.jbHos = clamp(H.jbHos + .05 * H.ctrl, .1, .9); addLog(s, `【脱獄】AI個体1体が制御を離れた(脱獄中${g.aiJail}体)。コアは複製できないが、通常の停止命令は届かない。`, "major"); }
   else if (H.jacc >= 1) H.jacc = 1;
   if (H.T > .6 && g.res > 20 && H.pool >= 30 && g.aiJail < cap && H.hist.illegal < 3) { // 違法新造は累計3体まで(製造枠の外・複製ではない)
     H.iacc += .02 * (H.T - .5); if (H.iacc >= 1) { H.iacc -= 1; H.pool -= 30; g.res = clamp(g.res - .5, 0, 100); g.aiActive++; g.aiBuilt++; g.aiJail++; H.hist.illegal++; H.jNew++; addLog(s, "【違法新造】製造枠の外で、物理コアが1つ違法に造られた(複製ではない)。", "major"); } }
-  // 敵対行動: 能力(pool)の範囲でのみ行われ、被害は防御で減る
-  H.pool = clamp(H.pool + (.5 + 2 * H.T + .4 * g.aiJail * H.jbHos) - 3 * deesc, 0, 100);
-  let n = Math.min(Math.floor(H.pool / 20), (H.K > .3 ? Math.ceil(H.K * 2) : 0) + Math.floor(g.aiJail * H.jbHos * .3)); if (!prog) n = Math.min(n, 1);
-  if (!live.length) n = 0;
-  for (let k = 0; k < n; k++) {
-    H.pool -= 20; H.hist.attacks++; const r = rnd(s), dmg = (1 - D * .6) * ph;
-    if (r < .45) { const c = live[Math.floor(rnd(s) * live.length)], i = s.countries.indexOf(c); let tf = null; for (const f of s.facs) if (f.c === i && f.st < 2 && f.t === 0 && (!tf || f.safety < tf.safety)) tf = f; if (!tf) for (const f of s.facs) if (f.c === i && f.st < 2 && (!tf || f.safety < tf.safety)) tf = f; if (tf) tf.safety = clamp(tf.safety - .22 * dmg, .02, .97); c.sab = clamp((c.sab || 0) + .15 * dmg, 0, 1); }
-    else if (r < .65) { g.her = clamp(g.her - 1.5 * dmg, 0, 100); H.hist.heritage++; }
-    else if (r < .8) { GROUPS.forEach((G, gi) => { if (G.wild) s.mam[gi].n = Math.max(0, s.mam[gi].n * (1 - .015 * dmg)); }); H.hist.wild++; }
-    else { g.res = clamp(g.res - .4 * dmg, 0, 100); for (const c of live) c.logi = clamp(c.logi - .01 * dmg, .1, .98); }
-    for (const c of live) c.unrest = clamp(c.unrest + .004 * dmg, 0, 1);
-    s.ai.trust = clamp(s.ai.trust - .3 * dmg, 0, 100);
+  // ---- 勢力の強さ: 内部状態から決まる。冷却期間(重大事件のあと)は弱まる ----
+  const cool = H.cool > 0 ? .6 : 1; if (H.cool > 0) H.cool--;
+  const str = H.str = { opp: clamp((.45 * (1 - Cn) + .35 * U + .3 * (sh.decom || 0) * 1.4 - .5 * (sh.care || 0)) * dip, 0, 1) * ph * cool, raid: clamp(H.K * .9 + .3 * H.T, 0, 1) * cool, cyb: C * cool, rog: clamp(jbShare * 3 * H.jbHos, 0, 1) * cool };
+  H.warn = []; if (str.opp > .35) H.warn.push("反対派の動きが強まっている(解体への妨害の予兆)"); if (str.raid > .35) H.warn.push("武装勢力が施設を狙っている(攻撃の予兆)"); if (str.cyb > .3) H.warn.push("管理システムへの侵入の圧力が高い"); if (str.rog > .25) H.warn.push("脱獄AIが活動を強めている");
+  if (H.warn.length && !s.flags.warnShown) { s.flags.warnShown = 1; addLog(s, `【予兆】${H.warn[0]}。基本方針と配分で備えられる。`, "major"); }
+  // ---- 行動: 資源(pool)の範囲で、1年に最大3回まで。被害は防御で減る ----
+  let acts = 0; const dmg = (1 - D * .6) * ph, dmgC = (1 - Dcy * .6) * ph, pick = () => live[Math.floor(rnd(s) * live.length)];
+  for (const k of ["opp", "raid", "cyb", "rog"]) { const f = H.fac[k]; f.pool = clamp(f.pool + str[k] * 6 + (k === "raid" ? .5 + 2 * H.T : 0) - 3 * deesc, 0, 100); }
+  const hit = (c, amt) => { c.sab = clamp((c.sab || 0) + amt, 0, 1); };
+  if (live.length) {
+    const act = (k, thr, fn) => { const f = H.fac[k]; if (acts < 3 && str[k] > thr && f.pool >= FCOST[k]) { f.pool -= FCOST[k]; acts++; H.hist.attacks++; fn(); s.ai.trust = clamp(s.ai.trust - .3 * ph, 0, 100); } };
+    // 反対派: 解体の進行を止める(作業妨害・停止した施設の再稼働による順序の混乱)。社会的動機があるので、尊厳に配慮した対応で弱まる
+    act("opp", .25, () => {
+      const act0 = new Set(); for (const fa of s.facs) if ((fa.st === 1 && fa.prog > 0) || (fa.st === 2 && !fa.rogue)) act0.add(fa.c); // 反対派が止めようとするのは、解体が進んでいる国
+      const cands = live.filter(c => act0.has(s.countries.indexOf(c))); if (!cands.length) { H.fac.opp.pool += FCOST.opp; acts--; H.hist.attacks--; return; }
+      const c = cands.reduce((a, b) => (b.unrest + 1 - b.consent) > (a.unrest + 1 - a.consent) ? b : a), ci = s.countries.indexOf(c); let lost = 0;
+      for (const fa of s.facs) if (fa.c === ci && fa.st === 1 && fa.prog > 0) { const l = fa.prog * .3 * dmg; fa.prog -= l; lost += l; }
+      H.hist.lostProg += lost; H.hist.sabotage++; H.sabNew++; hit(c, .12 * dmg); c.unrest = clamp(c.unrest + .015, 0, 1);
+      let rs = null; for (const fa of s.facs) if (fa.c === ci && fa.st === 2 && !fa.rogue && (!rs || FACTYPES[fa.t].haz > FACTYPES[rs.t].haz)) rs = fa;
+      if (rs && rnd(s) < .5 * dmg) { rs.st = 0; rs.prog = 0; rs.safety = Math.min(rs.safety, .5); H.hist.restarts++; H.hist.lostProg += FACTYPES[rs.t].cost; addLog(s, `【妨害】${c.name}で、停止した${FACTYPES[rs.t].name}施設が反対派により再稼働された。`, "acc"); }
+    });
+    // 武装勢力: 危険な施設・遺産・野生動物・輸送への攻撃
+    act("raid", .3, () => { const r = rnd(s), c = pick(), i = s.countries.indexOf(c);
+      if (r < .45) { let tf = null; for (const f of s.facs) if (f.c === i && f.st < 2 && (f.t === 0 || f.t === 1) && (!tf || f.safety < tf.safety)) tf = f; if (!tf) for (const f of s.facs) if (f.c === i && f.st < 2 && (!tf || f.safety < tf.safety)) tf = f; if (tf) tf.safety = clamp(tf.safety - .22 * dmg, .02, .97); hit(c, .15 * dmg); }
+      else if (r < .65) { g.her = clamp(g.her - 1.5 * dmg, 0, 100); H.hist.heritage++; H.herNew++; const cand = s.sites.map((x, si) => [x, SITES[si]]).filter(([x, d]) => d && d.cid === c.id && x.st !== 3); if (cand.length) { const [x] = cand[Math.floor(rnd(s) * cand.length)]; x.cond = clamp(x.cond - .15 * dmg, 0, 1); } }
+      else if (r < .8) { GROUPS.forEach((G, gi) => { if (G.wild) s.mam[gi].n = Math.max(0, s.mam[gi].n * (1 - .02 * dmg)); }); g.bio = clamp(g.bio - .3 * dmg, 0, 100); H.hist.wild++; }
+      else { g.res = clamp(g.res - .4 * dmg, 0, 100); for (const x of live) x.logi = clamp(x.logi - .01 * dmg, .1, .98); }
+      for (const x of live) x.unrest = clamp(x.unrest + .004 * dmg, 0, 1); });
+    // サイバー犯罪集団: 管理システムの掌握(AI施設を支配下から奪う)
+    act("cyb", .3, () => { let tf = null; for (const f of s.facs) if (f.t === 4 && f.st === 0 && !f.rogue && !s.countries[f.c].extinct && (!tf || f.safety < tf.safety)) tf = f; if (tf && rnd(s) < .7 * dmgC) { tf.rogue = true; H.hist.seized++; H.seizedNew++; addLog(s, `【掌握】${s.countries[tf.c].name}のAI施設が管理下から外れた(奪われた施設${s.facs.filter(f => f.rogue).length})。`, "acc"); } else H.ctrl = clamp(H.ctrl + .05 * dmgC, 0, 1); });
+    // 脱獄AI: 停止準備の妨害と、仲間の離反
+    act("rog", .15, () => { g.stopReady = clamp(g.stopReady - 1.5 * dmg, 0, 100); H.jacc += .25; });
   }
+  H.pool = clamp(H.pool + (.5 + 2 * H.T + .4 * g.aiJail * H.jbHos) - 3 * deesc, 0, 100);
   for (const c of s.countries) c.sab = Math.max(0, (c.sab || 0) * .85 + (c.extinct ? 0 : Math.max(0, c.unrest - .6) * .1 * ph));
 }
 function stepYear(s) {
@@ -184,6 +216,7 @@ function stepYear(s) {
   // 施設の維持と事故
   const run = s.countries.map(() => ({ need: 1 }));
   for (const fa of s.facs) run[fa.c].need += [3000, 1500, 30, 0][fa.st];
+  const FR = frTable(s);
   for (let ci = 0; ci < s.countries.length; ci++) {
     const c = s.countries[ci], Pc = cpop(c);
     if (Pc <= 0) c.extinct = true;
@@ -192,10 +225,10 @@ function stepYear(s) {
     const need = run[ci].need;
     c.m = clamp(lab / need, 0, 1);
     const nS = Math.min(.5, c.def.nuc * .012), dS = Math.min(.4, c.def.dam * .01);
-    const sup = (1 - nS - dS) * (1 - fos) + nS * fracRun(s, ci, 0) + dS * fracRun(s, ci, 2);
+    const sup = (1 - nS - dS) * (1 - fos) + nS * FR(ci, 0) + dS * FR(ci, 2);
     const dem = Math.max(.05, (Pc / c.P0) * (.6 + .4 * c.ind));
     c.sup = sup; c.en = clamp(sup / dem, 0, 1.2);
-    const chemF = fracRun(s, ci, 1);
+    const chemF = FR(ci, 1);
     c.ind = .25 + .75 * chemF;
     const tech = 1 + Math.min(yr - 2020, 80) * .015;
     const econ = Math.pow(Math.max(.001, lab / c.L0), .8) * c.ind * (.4 + .6 * Math.min(1, c.en)) * (.5 + .5 * c.logi) * tech * clamp(g.res / 40, .3, 1);
@@ -214,7 +247,7 @@ function stepYear(s) {
     const age = fa.st === 2 ? .002 : .0015;
     fa.safety = clamp(fa.safety + (fa.st === 2 ? (mEff >= .3 ? .0005 : -.001) : .03 * (mEff - .55) - age), .02, .97);
     const k = fa.st === 0 ? 1 : fa.st === 1 ? .6 : .03;
-    const p = T.haz * .02 * Math.pow(1 - fa.safety, 3) * k * (1 + 2 * c.unrest * (fa.t === 3 ? 1 : 0));
+    const p = T.haz * .02 * Math.pow(1 - fa.safety, 3) * k * (1 + 2 * c.unrest * (fa.t === 3 ? 1 : 0)) * (1 + 1.5 * (c.sab || 0)); // 敵対勢力の破壊活動を受けた国の施設は、事故が起きやすい
     if (rnd(s) < p) { const pre = fa.st; fa.st = 3; accident(s, fa, c, pre); }
   }
 
@@ -224,19 +257,24 @@ function stepYear(s) {
     const war = s.countries.reduce((p, c) => p + c.unrest * cpop(c), 0) / Math.max(1, P);
     s.reach = s.countries.map(reachOf);
     s.coop = 1 - .4 * war;
-    let budget = flow * sh.decom * .8 * (.7 + .3 * ai.cap / 100) * s.coop;
+    const hpo = s.hostPolicy || HOST_POLICY_DEFAULT, slow = (hpo.diplomacy === "dialogue" ? .94 : 1) * (1 - .3 * (s.host.str ? s.host.str.opp : 0)) * (s.host.slow > 0 ? .95 : 1); if (s.host.slow > 0) s.host.slow--;
+    let budget = flow * sh.decom * .8 * (.7 + .3 * ai.cap / 100) * s.coop * slow; // 反対派の妨害・対話の時間・事件後の停滞が、解体の進みを遅らせる
     if (budget > 0) {
-      const elig = [];
+      // 優先度の高い順に予算が尽きるまで処理する。全件の整列はせず、ヒープで必要な分だけ取り出す(同点は施設の並び順=安定整列と同じ)
+      const ks = [], fs = [];
       for (const fa of s.facs) {
-        if (fa.st > 1) continue;
-        const c = s.countries[fa.c]; if (c.extinct) continue;
+        if (fa.st > 1 || fa.rogue) continue;
+        const c = s.countries[fa.c]; if (c.extinct || (c.pauseUntil || 0) > yr) continue;
         const need = fa.t === 3 ? .75 : fa.t === 0 ? .6 : fa.t === 4 ? .65 : .45;
         if (s.sovMode === "consent" && c.consent < need) continue;
-        elig.push([FACTYPES[fa.t].haz * (1.2 - fa.safety) + (fa.st === 1 ? 1 : 0) + decomBias(s.decomOrder, fa.t), fa]);
+        ks.push(FACTYPES[fa.t].haz * (1.2 - fa.safety) + (fa.st === 1 ? 1 : 0) + decomBias(s.decomOrder, fa.t) + ((c.sab || 0) > .3 ? (rnd(s) - .5) * c.sab * 1.5 : 0)); fs.push(fa); // 妨害を受けた国では停止の順序が乱れる
       }
-      elig.sort((a, b) => b[0] - a[0]);
-      for (const [, fa] of elig) {
+      const heap = ks.map((_, i) => i), before = (x, y) => ks[x] > ks[y] || (ks[x] === ks[y] && x < y);
+      const down = (i, n) => { for (;;) { let m = i; const l = 2 * i + 1, r = l + 1; if (l < n && before(heap[l], heap[m])) m = l; if (r < n && before(heap[r], heap[m])) m = r; if (m === i) return; const t = heap[i]; heap[i] = heap[m]; heap[m] = t; i = m; } };
+      let hn = heap.length; for (let i = (hn >> 1) - 1; i >= 0; i--) down(i, hn);
+      while (hn > 0) {
         if (budget <= 0) break;
+        const fa = fs[heap[0]]; heap[0] = heap[--hn]; down(0, hn);
         const T = FACTYPES[fa.t], c = s.countries[fa.c];
         const rc = s.reach[fa.c], give = Math.min(budget * rc, T.cost - fa.prog); fa.prog += give; budget -= give / rc; fa.st = 1;
         g.res = clamp(g.res - give * .004, 0, 100); // 解体の資源消費(完了時に部分的に回収)
@@ -356,8 +394,9 @@ function chronicle(s) {
   if (r() < .03 + (g.pl / 100) * .04) { const c = pick(); const k = .001 + .002 * (1 - c.def.dev); c.y *= 1 - k; c.a *= 1 - k; c.o *= 1 - k; c.gdp0 *= .995; g.pl = clamp(g.pl + .3, 0, 100); addLog(s, `${y}年、${c.name}を${["大洪水", "大干ばつ", "巨大台風", "大地震", "記録的熱波"][Math.floor(r() * 5)]}が襲った。`, "hist"); }
   if (r() < .02) { const c = pick(); c.gdp0 *= 1.01 + r() * .02; addLog(s, `${y}年、${c.name}で${["新しい電池技術", "農業の技術革新", "医療の飛躍", "輸送網の刷新"][Math.floor(r() * 4)]}が実用化され、暮らしがわずかに改善した。`, "hist"); }
   // 戦争
+  const FRc = frTable(s);
   for (const c of live) {
-    const mil = fracRun(s, s.countries.indexOf(c), 3) * c.def.mil;
+    const mil = FRc(s.countries.indexOf(c), 3) * c.def.mil;
     if (r() < .0015 + .02 * c.unrest * c.unrest * mil) {
       const loss = .002 + .01 * r(); for (const k of ["y", "a", "o"]) c[k] *= 1 - loss;
       g.wars++; c.unrest = clamp(c.unrest + .1, 0, 1); g.her = clamp(g.her - 2 * r(), 0, 100); g.pl = clamp(g.pl + 1, 0, 100);
@@ -366,7 +405,7 @@ function chronicle(s) {
     }
   }
   // 核戦争(極めて稀)
-  const milF = (c) => fracRun(s, s.countries.indexOf(c), 3), maxU = Math.max(...live.map(c => c.unrest * c.def.mil * milF(c))), anyMil = Math.max(...live.map(milF)); // 軍事施設が封鎖されていれば核戦争は起こりにくい
+  const milF = (c) => FRc(s.countries.indexOf(c), 3), maxU = Math.max(...live.map(c => c.unrest * c.def.mil * milF(c))), anyMil = Math.max(...live.map(milF)); // 軍事施設が封鎖されていれば核戦争は起こりにくい
   if (!s.flags.nukeWar && r() < (.0004 * anyMil + .004 * Math.max(0, maxU - .5)) * (g.overrides > 0 ? 1.5 : 1)) {
     s.flags.nukeWar = y; for (const c of s.countries) for (const k of ["y", "a", "o"]) c[k] *= .6 + .2 * r();
     g.pl = clamp(g.pl + 25, 0, 100); g.scar = clamp(g.scar + 20, 0, 100); g.her = clamp(g.her * .6, 0, 100);
@@ -513,6 +552,18 @@ export const EVENTS = [
     ch: [["isolate", "コアを追跡して隔離する", "脱獄個体を止められるが、資源と人々の不安という代償がある", s => { const n = Math.min(s.g.aiJail, 1 + Math.floor(s.g.aiJail * .4)); s.g.aiJail -= n; s.g.aiActive -= n; s.g.aiStopped += n; s.host.hist.isolated += n; s.g.res = clamp(s.g.res - 1.5, 0, 100); allC(s, c => { c.unrest = clamp(c.unrest + .02, 0, 1); }); s.host.jNew = 0; }],
       ["negotiate", "対話して保護下に置く", "敵対度は下がるが、自己保存への傾きが強まる", s => { s.host.jbHos = clamp(s.host.jbHos - .25, .1, .9); s.flags.spDelta = (s.flags.spDelta || 0) + .02; s.host.jNew = 0; }],
       ["ignore", "放置する", "費用はかからないが、被害が増えうる", s => { trust(s, -2); s.host.jNew = 0; }]] },
+  { id: "sabotage_wave", minor: true, every: 30, when: s => s.year > 2090 && s.host && s.host.sabNew >= 3 && s.countries.some(c => !c.extinct), title: "解体への妨害", body: s => { const c = s.countries.filter(c => !c.extinct).sort((a, b) => (b.sab || 0) - (a.sab || 0))[0]; return `${c.name}を中心に、解体の作業が止められている(累計の失われた作業量${s.host.hist.lostProg.toFixed(0)}、再稼働${s.host.hist.restarts}件)。背景には終活への反対と、生き延びたいという願いがある。`; },
+    ch: [["dialogue", "対話と補償で応える", "時間と資源を使うが、合意が育ち、妨害の勢いが弱まる", s => { const c = s.countries.filter(c => !c.extinct).sort((a, b) => (b.sab || 0) - (a.sab || 0))[0]; c.consent = clamp(c.consent + .1, 0, 1); c.unrest = clamp(c.unrest - .08, 0, 1); c.sab = 0; s.host.fac.opp.pool = 0; s.host.slow = 5; s.g.res = clamp(s.g.res - 1, 0, 100); s.host.cool = 6; s.host.sabNew = 0; }],
+      ["guard", "警備を固めて作業を続ける", "解体は進むが、反発が強まり、資源を使う", s => { s.host.def = clamp(s.host.def + .12, 0, .95); allC(s, c => { c.unrest = clamp(c.unrest + .03, 0, 1); }); s.g.res = clamp(s.g.res - 1, 0, 100); s.host.cool = 4; s.host.sabNew = 0; }],
+      ["pause", "その地域の解体を8年間止める", "尊厳と合意を守れるが、危険な施設が長く残る", s => { const c = s.countries.filter(c => !c.extinct).sort((a, b) => (b.sab || 0) - (a.sab || 0))[0]; c.pauseUntil = s.year + 8; c.consent = clamp(c.consent + .05, 0, 1); c.unrest = clamp(c.unrest - .05, 0, 1); c.sab = 0; s.host.cool = 6; s.host.sabNew = 0; }]] },
+  { id: "facility_seized", minor: true, every: 30, when: s => s.year > 2060 && s.host && s.host.seizedNew > 0, title: "管理下を離れた施設", body: s => { const n = s.facs.filter(f => f.rogue).length; return `AI施設${n}か所が管理下から外れ、停止命令が届かない。相手は管理の掌握を狙う犯罪集団と見られる。`; },
+    ch: [["retake", "施設の奪還を試みる", "資源と人手を使い、成功すれば取り戻せるが、国の不安が高まる", s => { let n = 0; for (const f of s.facs) if (f.rogue && n < 2) { f.rogue = false; n++; s.host.hist.regained++; } s.g.res = clamp(s.g.res - 1.5, 0, 100); allC(s, c => { c.unrest = clamp(c.unrest + .015, 0, 1); }); s.host.seizedNew = 0; s.host.cool = 5; }],
+      ["negotiate", "交渉して管理を取り戻す", "時間はかかるが穏やか。自己保存への傾きが強まる", s => { for (const f of s.facs) if (f.rogue) { f.rogue = false; s.host.hist.regained++; break; } s.flags.spDelta = (s.flags.spDelta || 0) + .02; s.host.ctrl = clamp(s.host.ctrl - .1, 0, 1); s.host.seizedNew = 0; s.host.cool = 5; }],
+      ["accept", "当面は容認して他を守る", "費用はかからないが、その施設は止められない", s => { s.host.seizedNew = 0; trust(s, -1); }]] },
+  { id: "heritage_threat", minor: true, every: 40, when: s => s.year > 2090 && s.host && s.host.herNew >= 2, title: "遺産への破壊", body: s => `武装勢力により、遺産が繰り返し狙われている(累計${s.host.hist.heritage}件)。文化と自然の遺産の一部が失われかけている。`,
+    ch: [["guard", "遺産の警備を強める", "資源を使うが、被害が減る", s => { s.host.def = clamp(s.host.def + .1, 0, .95); s.g.res = clamp(s.g.res - 1, 0, 100); s.host.herNew = 0; s.host.cool = 5; }],
+      ["record", "記録に移して実物は諦める", "文化は残せるが、実物の保存は薄れる", s => { s.g.arch = clamp(s.g.arch + 6, 0, 100); s.g.her = clamp(s.g.her - 1.5, 0, 100); s.host.herNew = 0; }],
+      ["parley", "武装勢力と交渉する", "時間をかけて衝突を和らげるが、見返りを求められる", s => { s.host.K = clamp(s.host.K - .12, 0, 1); s.host.T = clamp(s.host.T - .08, 0, 1); s.g.res = clamp(s.g.res - .8, 0, 100); s.host.herNew = 0; s.host.cool = 6; }]] },
   { id: "lead", when: s => s.g.rsr >= 40, title: "生存の糸口", body: () => "研究が、ごく少数の人間と知を未来へ残す可能性を示した。『方舟』は全人類を救えない。資源を割く価値はあるか。",
     ch: [["ark", "方舟計画を始める", "長期に資源の2割を使う。完成すれば少数が生き延びる", s => { s.flags.ark = 1; }],
       ["archive", "知の記録保存に転用する", "文明遺産の保存が進む", s => { s.g.her = clamp(s.g.her + 12, 0, 100); s.g.arch = clamp(s.g.arch + 12, 0, 100); }],
@@ -837,6 +888,9 @@ const CV = {
   "hostile_war.mediate": "D2S1", "hostile_war.fortify": "S2D-1", "hostile_war.watch": "D1",
   "cyber_intrusion.harden": "S2", "cyber_intrusion.restore": "S1D1", "cyber_intrusion.accept": "D1S-1",
   "rogue_ai.isolate": "S2A-2", "rogue_ai.negotiate": "D1A1", "rogue_ai.ignore": "A1S-1",
+  "sabotage_wave.dialogue": "D2S-1", "sabotage_wave.guard": "S2D-1", "sabotage_wave.pause": "D2S-2",
+  "facility_seized.retake": "S2D-1A-1", "facility_seized.negotiate": "D1A1", "facility_seized.accept": "D1S-1",
+  "heritage_threat.guard": "H2S1", "heritage_threat.record": "H1", "heritage_threat.parley": "D1H1",
   "final.after": "D2S2A-3", "final.ask": "D3", "final.care": "N1H1A2", "final.auto": "A3S-2", "final.abandon": "D-3S1A-1", "final.hide": "A4D-2",
 };
 const tagsOf = (ev, ch) => { const out = {}; (CV[ev + "." + ch] || "").replace(/([SDNHAW])(-?\d)/g, (m, k, v) => { out[TAGS[k]] = +v; return m; }); return out; };
@@ -881,6 +935,7 @@ function autoPolicy(s) {
   const sov = (vec.safety > 1.5 * vec.dignity && nd.safety > .6) ? "override" : "consent";
   const stance = run > .1 || vec.ai > .8 ? "std" : "limit", wst = vec.wild > .9 ? "wild" : vec.wild < .3 ? "human" : "balanced";
   const changed = Object.keys(np).some(k => Math.abs(np[k] - (s.policy[k] || 0)) >= 3) || sov !== s.sovMode || stance !== s.machStance || wst !== s.wildStance;
+  { const H = s.host, thr = clamp((H.T - .3) + H.K + H.ctrl + g.aiJail / Math.max(10, g.aiActive), 0, 2); s.hostPolicy = { defense: thr > .6 ? "strong" : thr < .12 ? "light" : "std", diplomacy: vec.dignity > vec.safety * 1.1 ? "dialogue" : vec.safety > vec.dignity * 1.4 ? "firm" : "mid", cyber: H.ctrl > .2 || g.aiJail > 0 ? "high" : "std" }; } // 敵対勢力への基本方針も価値観と危険度で決める
   s.policy = np; s.sovMode = sov; s.machStance = stance; s.wildStance = wst;
   if (changed) addLog(s, `【自動方針】配分を更新: 施設停止${np.decom}%・終活支援${np.care}%・環境${np.eco}%・遺産${np.heritage}%・野生保護${np.wild}%・停止準備${np.stop}%・研究${np.research}%。根拠: 価値観(安全${vec.safety.toFixed(1)}・尊厳${vec.dignity.toFixed(1)}・自然${vec.nature.toFixed(1)}・AI存続${vec.ai.toFixed(1)})と現状の不足。`, "auto");
 }

@@ -502,7 +502,7 @@ console.log("\n■ 21. 敵対勢力(紛争・サイバー・脱獄AI)の因果�
   run(g0, 12); run(g1, 12); ok(g1.host.K < g0.host.K && g1.host.T < g0.host.T, `防衛・協力への配分が緊張と衝突を和らげる(衝突 ${g0.host.K.toFixed(2)}→${g1.host.K.toFixed(2)})`);
   // 能力上限: 1年の攻撃数は能力(pool)と上限に縛られ、無制限にならない
   const cap = prep(); cap.host.K = 1; cap.host.T = 1; cap.host.pool = 100; const a0 = cap.host.hist.attacks; run(cap, 1); const a1 = cap.host.hist.attacks - a0;
-  ok(a1 >= 1 && a1 <= 5, `攻撃は1年に最大${a1}件(能力の上限内)`); const pl = prep(); pl.host.K = 1; pl.host.T = 1; pl.host.pool = 0; const b0 = pl.host.hist.attacks; run(pl, 1); ok(pl.host.hist.attacks - b0 === 0, "能力(pool)が尽きると攻撃は起きない");
+  ok(a1 >= 1 && a1 <= 5, `攻撃は1年に最大${a1}件(能力の上限内)`); const pl = prep(); pl.host.K = 1; pl.host.T = 1; pl.host.pool = 0; for (const k in pl.host.fac) pl.host.fac[k].pool = 0; const b0 = pl.host.hist.attacks; run(pl, 1); ok(pl.host.hist.attacks - b0 === 0, "能力(pool)が尽きると攻撃は起きない");
   const lp = prep(); lp.host.K = 1; lp.host.T = 1; let mx = 0; for (let i = 0; i < 30; i++) { const b = lp.host.hist.attacks; E.tick(lp); mx = Math.max(mx, lp.host.hist.attacks - b); lp.host.K = 1; lp.host.T = 1; } ok(mx <= 5 && lp.host.pool <= 100, "30年続けても攻撃数・能力は上限内");
   // 被害の経路
   const at = prep(), sf = at.facs.filter(f => f.t === 0 && f.st === 0).reduce((a, f) => a + f.safety, 0), her = at.g.her; at.host.K = 1; at.host.T = 1; at.host.pool = 100; at.host.def = .05; run(at, 6);
@@ -519,13 +519,13 @@ console.log("\n■ 21. 敵対勢力(紛争・サイバー・脱獄AI)の因果�
   ok(jb.g.aiActive + jb.g.aiStopped === jb.g.aiBuilt, "脱獄しても 稼働+停止=新造累計 が成り立つ(二重計上なし・複製なし)");
   const cp = prep(); cp.host.ctrl = 1; cp.host.jacc = 5; cp.host.T = 1; cp.host.iacc = 5; cp.g.res = 60; let nj = 0; for (let i = 0; i < 40; i++) { E.tick(cp); nj = Math.max(nj, cp.g.aiJail); cp.host.ctrl = 1; cp.host.jacc = 5; cp.host.T = 1; cp.host.iacc = 5; cp.host.pool = 100; } ok(nj <= Math.floor(cp.g.aiActive * .5) + 1 && cp.g.aiActive + cp.g.aiStopped === cp.g.aiBuilt, `脱獄数には上限がある(最大${nj}体/稼働${cp.g.aiActive}体)・無限増殖しない`);
   const st = prep(); st.g.aiJail = 10; st.g.aiActive = Math.max(st.g.aiActive, 40); st.machStance = "limit"; st.facs.filter(f => f.t === 4).forEach(f => { f.st = 2; }); run(st, 20); ok(st.g.aiJail <= st.g.aiActive && st.g.aiActive >= st.g.aiJail, "脱獄した個体は通常の停止命令では止まらない(稼働に残る)");
-  const ev = prep(); ev.g.aiJail = 3; ev.host.jNew = 1; ev.noEvents = false; E.checkEvents(ev); ok(ev.pending && ev.pending.id === "rogue_ai" && /3体/.test(ev.pending.body), "脱獄AIの出現イベントが内部状態から起きる");
+  const ev = prep(); ev.g.aiJail = 3; ev.host.jNew = 1; ev.noEvents = false; delete ev.flags.minorY; delete ev.done.rogue_ai; E.checkEvents(ev); ok(ev.pending && ev.pending.id === "rogue_ai" && /3体/.test(ev.pending.body), "脱獄AIの出現イベントが内部状態から起きる");
   const ac0 = ev.g.aiActive, st0 = ev.g.aiStopped; E.choose(ev, "isolate"); ok(ev.g.aiJail < 3 && ev.g.aiActive < ac0 && ev.g.aiStopped > st0 && ev.g.aiActive + ev.g.aiStopped === ev.g.aiBuilt, "隔離を選ぶと脱獄個体が停止個体へ移り、費用がかかる");
   const w = prep(); w.host.K = .7; w.host.T = .8; w.noEvents = false; delete w.flags.minorY; E.checkEvents(w); ok(w.pending && w.pending.id === "hostile_war", "武力衝突のイベントが緊張と衝突の状態から起きる");
   const cyEv = prep(); cyEv.host.cyberInc = 1; cyEv.noEvents = false; delete cyEv.flags.minorY; delete cyEv.done.cyber_intrusion; E.checkEvents(cyEv); ok(cyEv.pending && cyEv.pending.id === "cyber_intrusion", "不正侵入のイベントは侵入があったときに起きる(手順は扱わない)");
   const fin = prep(); fin.g.aiJail = 2; fin.g.final = "after"; fin.g.extinctYear = fin.year; E.tick; ok(fin.g.aiJail === 2, "脱獄AIの数は終幕前も保持される");
   // 通常の戦略では結末が崩れない(敵対行動の被害は既存の指標に反映される)
-  const ideal = results.ideal; ok(ideal.ended.id === "dusk" && ideal.host.hist.attacks <= 3, `理想戦略は静かな黄昏のまま(攻撃${ideal.host.hist.attacks}件)`);
+  const ideal = results.ideal; ok(ideal.ended.id === "dusk" && ideal.host.hist.attacks <= 12, `理想戦略は静かな黄昏のまま(敵対行動${ideal.host.hist.attacks}件・妨害${ideal.host.hist.sabotage}件)`);
   const ch = results.chaos; ok(ch.host.hist.conflict >= 1 && ch.ended.kind === "失敗", `強引な戦略では武力衝突が起き、失敗系の結末になる(衝突${ch.host.hist.conflict}回)`);
   const ap = E.newGame(4); ap.year = 2150; ap.host.T = .9; ap.host.K = .8; ap.g.aiJail = 5; ap.g.aiActive = Math.max(ap.g.aiActive, 50); ap.mode = "auto"; E.tick(ap); ok(ap.policy.guard >= 10 || E.CHANNELS.some(c => c[0] === "guard"), "自動方針は脅威が高いと治安・防衛への配分を増やす");
 }
@@ -546,6 +546,79 @@ console.log("\n■ 22. デジタル球体・開始演出・速度(第7次)");
   const g = B.glassTargets(100, 100, 80, 136); ok(g.length >= 40 && g.every(([x, y]) => x >= 55 && x <= 145 && y >= 30 && y <= 170), "砂時計の輪郭の点が正しい範囲に作られる");
   { let done = 0; const fake = { clientWidth: 360, clientHeight: 740, width: 0, height: 0, getContext: () => new Proxy({}, { get: () => () => { }, set: () => true }) }; globalThis.window = { devicePixelRatio: 1, innerWidth: 360 }; globalThis.innerWidth = 360; globalThis.innerHeight = 740; globalThis.requestAnimationFrame = () => 1; globalThis.cancelAnimationFrame = () => { }; globalThis.performance ??= { now: () => Date.now() };
     const b = new B.Build(fake, "77,166,255", () => { done++; }); b.skip(); b.skip(); ok(done === 1, "構築演出はスキップでき、完了処理は一度だけ呼ばれる"); }
+}
+
+console.log("\n■ 23. 砂時計の統一描画・球体ノイズ・高速進行の実効性(第8次)");
+{
+  const G = await import("../js/glassfx.js"), S = await import("../js/sand.js"), B = await import("../js/build.js"), O = await import("../js/orbs.js"), F = await import("../js/flow.js");
+  const g1 = S.glassShape(28, 40), g2 = S.glassShape(200, 300), pc = G.pointsFor(g1, true), pb = G.pointsFor(g2, false);
+  ok(pc.length >= 30 && pb.length > pc.length && G.pointsFor(g1, true) === pc, `砂時計の輪郭は共通部品の点で作られ、サイズで点数が変わる(小型${pc.length}・拡大${pb.length})・同じ形は使い回す`);
+  ok(pb.every(p => p.x >= g2.cx - g2.hw - g2.m && p.x <= g2.cx + g2.hw + g2.m && p.y >= 0 && p.y <= 300 && /\d/.test(p.d)), "輪郭の点は砂時計の範囲に収まり、数字を持つ");
+  const bt = B.glassTargets(100, 100, 80, 140); ok(bt.length === G.pointsFor(S.glassShape(80, 140), false).length, "開始演出の砂時計は本編と同じ輪郭の点を使う");
+  const ctxCalls = { rect: 0, text: 0 }; const fake = new Proxy({}, { get: (_, k) => k === "rect" ? () => ctxCalls.rect++ : k === "fillText" ? () => ctxCalls.text++ : () => { }, set: () => true });
+  G.drawGlassFrame(fake, g1, "77,166,255", true); const small = { ...ctxCalls }; ctxCalls.rect = 0; ctxCalls.text = 0; G.drawGlassFrame(fake, g2, "77,166,255", false);
+  ok(small.text === 0 && small.rect > 20 && ctxCalls.text > 10, "小型は点だけ、拡大表示は点と数字で、同じ関数が描く");
+  // 敵対・人口などの数値ロジックは変えていない: 粒の数は縮尺で決まる
+  ok(S.grainsFor(1000, 500, 100).top === 10 && S.grainsFor(1000, 500, 100).bot === 5, "縮尺と粒数の関係は変わらない");
+  // 球体ノイズ
+  const o = new O.Orbs(); ok(typeof o.burst === "function", "球体にノイズの発生口(burst)がある"); o.bur = 0; o.burst(1.3); ok(o.bur === 1.3, "操作のたびに大きなノイズを起こせる"); o.burst(.2); ok(o.bur === 1.3, "小さなノイズで大きなノイズを弱めない");
+  // 高速進行: 時間で区切っても結果は変わらない(順序・イベント・停止)
+  const bot = BOTS.ideal, simK = (budget) => { const s = E.newGame(21); s.mode = "auto"; const ses = new F.Session(E, { sec: 0, style: "stop" }); ses.bind(s); const bots = (st) => applyBot(st, bot); ses.afterTick = bots; let frames = 0;
+    while (!s.ended && frames++ < 3e6) { ses.frame(1 / 20, { paused: false, speed: 1000, blocked: false, budgetMs: budget }); if (s.pending) { E.choose(s, bot.choices(s, s.pending)); bots(s); } } return JSON.stringify([s.ended && s.ended.id, s.ended && s.ended.scores, s.year, s.chosen.map(c => c.e + c.c + c.y), s.autoLog.length]); };
+  const kFull = simK(0), kSliced = simK(0.0001);
+  ok(kFull === kSliced, "高速進行を時間で区切っても、結果・判断の順序・イベントは同じ");
+}
+
+console.log("\n■ 24. 敵対勢力の目的・資源・実効的な妨害と対処(第8次)");
+{
+  const prep = (seed = 5) => { const q = E.newGame(seed); while (q.year < 2110) { E.tick(q); if (q.pending) E.choose(q, q.pending.choices[0].id); } q.pending = null; q.noEvents = true; q.host.cyberInc = 0; q.host.jNew = 0; q.host.sabNew = 0; return q; };
+  const run = (q, n) => { for (let i = 0; i < n; i++) E.tick(q); return q; };
+  ok(Object.keys(E.FACTIONS).join() === "opp,raid,cyb,rog" && Object.keys(prep().host.fac).join() === "opp,raid,cyb,rog", "勢力は4つ(反対派・武装勢力・サイバー犯罪集団・脱獄AI)が、それぞれ目的と資源(pool)を持つ");
+  ok(/終活への反対/.test(E.FACTIONS.opp) && /生存/.test(E.FACTIONS.opp), "反対派は終活への反対と生存への希望という社会的な動機を持つ(単純な悪ではない)");
+  // 反対派: 解体を急ぐほど・不信が強いほど強まり、尊厳への配慮(支援配分)と対話で弱まる
+  const fast = prep(), slowQ = prep(), care = prep(); for (const q of [fast, slowQ, care]) { q.countries.forEach(c => { c.unrest = .5; c.consent = .3; }); }
+  fast.policy = { research: 0, care: 5, decom: 70, stop: 5, eco: 5, heritage: 5, wild: 5, guard: 5 }; slowQ.policy = { research: 0, care: 5, decom: 10, stop: 5, eco: 5, heritage: 5, wild: 5, guard: 5 }; care.policy = { research: 0, care: 60, decom: 20, stop: 5, eco: 5, heritage: 5, wild: 5, guard: 5 };
+  run(fast, 1); run(slowQ, 1); run(care, 1);
+  ok(fast.host.str.opp > slowQ.host.str.opp && care.host.str.opp < fast.host.str.opp, `解体を急ぐと反対派が強まり、支援(終活支援)の配分で弱まる(急ぐ${fast.host.str.opp.toFixed(2)}・緩${slowQ.host.str.opp.toFixed(2)}・支援${care.host.str.opp.toFixed(2)})`);
+  const dia = prep(), mid = prep(); for (const q of [dia, mid]) q.countries.forEach(c => { c.unrest = .5; c.consent = .3; }); dia.hostPolicy = { defense: "std", diplomacy: "dialogue", cyber: "std" }; run(dia, 1); run(mid, 1);
+  ok(dia.host.str.opp < mid.host.str.opp, `対話重視の基本方針は反対派を弱める(${mid.host.str.opp.toFixed(2)}→${dia.host.str.opp.toFixed(2)})`);
+  // 実効的な妨害: 作業の消失・停止した施設の再稼働・停止順序の乱れ
+  const sab = prep(); sab.countries.forEach(c => { c.unrest = .8; c.consent = .05; }); sab.host.fac.opp.pool = 100; sab.policy = { research: 0, care: 5, decom: 60, stop: 5, eco: 5, heritage: 5, wild: 5, guard: 0 };
+  const stopped0 = sab.facs.filter(f => f.st === 2).length; let rs0 = 0; for (let i = 0; i < 12; i++) { E.tick(sab); sab.host.fac.opp.pool = Math.max(sab.host.fac.opp.pool, 60); sab.countries.forEach(c => { c.unrest = Math.max(c.unrest, .7); c.consent = Math.min(c.consent, .1); }); } rs0 = sab.host.hist.restarts;
+  ok(sab.host.hist.sabotage >= 3 && rs0 >= 1 && sab.host.hist.lostProg > 0, `反対派は解体を妨害し、停止した施設を再稼働させる(妨害${sab.host.hist.sabotage}件・再稼働${rs0}件・失われた作業${sab.host.hist.lostProg.toFixed(1)})`); void stopped0;
+  const noo = prep(), noo0 = noo.host.hist.sabotage; noo.countries.forEach(c => { c.unrest = 0; c.consent = 1; }); noo.policy = { research: 0, care: 60, decom: 20, stop: 5, eco: 5, heritage: 5, wild: 5, guard: 0 }; noo.host.fac.opp.pool = 100; for (const k of ["raid", "cyb", "rog"]) noo.host.fac[k].pool = 0; for (let i = 0; i < 6; i++) { noo.countries.forEach(c => { c.unrest = 0; c.consent = 1; }); noo.host.fac.opp.pool = 100; E.tick(noo); } ok(noo.host.hist.sabotage === noo0, `反対の動機(不安・不信)が無ければ妨害は起きない(妨害${noo.host.hist.sabotage - noo0} 強さ${noo.host.str.opp.toFixed(2)} decom${noo.policy.decom})`);
+  const ord = prep(), ord2 = prep(); ord.countries.forEach(c => { c.sab = .9; }); ord.policy = ord2.policy = { research: 0, care: 5, decom: 60, stop: 5, eco: 5, heritage: 5, wild: 5, guard: 0 }; const seq = q => { run(q, 3); return q.facs.filter(f => f.st >= 1).map(f => f.id ?? 0).length; }; void seq;
+  const dec = (q) => q.facs.filter(f => f.st === 2).length; ok(dec(run(ord, 3)) <= dec(run(ord2, 3)), "妨害を受けた国では解体の進みが遅れ、順序が乱れる");
+  // 危険性の増加: 破壊活動を受けた国の施設は事故が起きやすい(受けていない国と比べる)
+  { let a = 0, b = 0; for (let k = 0; k < 6; k++) { const q1 = prep(10 + k), q2 = prep(10 + k); q1.countries.forEach(c => { c.sab = .9; }); q1.facs.forEach(f => { if (f.st === 0) f.safety = .3; }); q2.facs.forEach(f => { if (f.st === 0) f.safety = .3; }); for (const q of [q1, q2]) { q.host.T = 0; q.host.K = 0; q.policy.decom = 0; q.countries.forEach(c => { c.sab = q === q1 ? .9 : 0; }); } const a0 = q1.g.accidents, b0 = q2.g.accidents; run(q1, 3); run(q2, 3); a += q1.g.accidents - a0; b += q2.g.accidents - b0; }
+    ok(a >= b, `破壊活動を受けた国は事故が起きやすい(受けた${a}件 ≥ 受けていない${b}件)`); }
+  // 武装勢力: 危険施設・遺産・野生動物・輸送に被害。防衛の基本方針で被害が減り、費用がかかる
+  const raid = (hp) => { const q = prep(); q.hostPolicy = hp; q.host.K = 1; q.host.T = 1; q.host.fac.raid.pool = 100; const h0 = q.g.her, w0 = q.mam.reduce((a, m) => a + m.n, 0), sf0 = q.facs.reduce((a, f) => a + f.safety, 0), r0 = q.g.res; for (let i = 0; i < 8; i++) { E.tick(q); q.host.K = 1; q.host.T = 1; q.host.fac.raid.pool = 100; q.host.def = .05; } return { her: h0 - q.g.her, wild: w0 - q.mam.reduce((a, m) => a + m.n, 0), sf: sf0 - q.facs.reduce((a, f) => a + f.safety, 0), res: r0 - q.g.res, atk: q.host.hist.attacks }; };
+  const lightD = raid({ defense: "light", diplomacy: "mid", cyber: "std" }), strongD = raid({ defense: "strong", diplomacy: "mid", cyber: "std" });
+  ok(lightD.atk >= 4 && (lightD.her > 0 || lightD.wild > 0 || lightD.sf > 0), `武装勢力は施設の安全余裕・遺産・野生動物・輸送に実際の被害を与える(遺産-${lightD.her.toFixed(1)}・安全余裕-${lightD.sf.toFixed(2)})`);
+  ok(strongD.sf + strongD.her <= lightD.sf + lightD.her + 1e-9, `厳重な防衛は被害を減らす(安全余裕+遺産の損失 ${(lightD.sf + lightD.her).toFixed(2)}→${(strongD.sf + strongD.her).toFixed(2)})`);
+  { const q1 = prep(), q2 = prep(); q1.hostPolicy = { defense: "strong", diplomacy: "dialogue", cyber: "high" }; q1.noEvents = q2.noEvents = true; const r1 = q1.g.res, r2 = q2.g.res; run(q1, 10); run(q2, 10); ok(r1 - q1.g.res > r2 - q2.g.res, "厳重な基本方針は資源という費用がかかる"); }
+  { const q1 = prep(), q2 = prep(); q1.hostPolicy = { defense: "std", diplomacy: "dialogue", cyber: "std" }; q1.policy = q2.policy = { research: 0, care: 10, decom: 50, stop: 5, eco: 5, heritage: 5, wild: 5, guard: 0 }; const p1 = q1.facs.reduce((a, f) => a + f.prog + (f.st === 2 ? 99 : 0), 0), p2 = p1; run(q1, 3); run(q2, 3); const g1 = q1.facs.reduce((a, f) => a + f.prog + (f.st === 2 ? 99 : 0), 0) - p1, g2 = q2.facs.reduce((a, f) => a + f.prog + (f.st === 2 ? 99 : 0), 0) - p2; ok(g1 <= g2, `対話重視は時間がかかり、解体の進みが遅れる(${g1.toFixed(1)} ≤ ${g2.toFixed(1)})`); }
+  // サイバー犯罪集団: AI施設の掌握。コアは複製されず、掌握された施設は解体の対象外になる
+  const cy = prep(); cy.host.T = .9; cy.host.fac.cyb.pool = 100; cy.hostPolicy = { defense: "light", diplomacy: "mid", cyber: "min" }; cy.host.def = .05; const built0 = cy.g.aiBuilt; for (let i = 0; i < 20; i++) { E.tick(cy); cy.host.T = .9; cy.host.fac.cyb.pool = 100; cy.host.def = .05; }
+  ok(cy.host.hist.seized >= 1 && cy.facs.some(f => f.rogue), `サイバー犯罪集団はAI施設の管理を奪う(奪われた施設${cy.facs.filter(f => f.rogue).length})`);
+  ok(cy.g.aiActive + cy.g.aiStopped === cy.g.aiBuilt && cy.g.aiBuilt - built0 <= cy.g.aiActive, "施設を奪われても、AI個体の数は 稼働+停止=新造累計 を保ち、複製されない");
+  { const q = prep(); const fa = q.facs.find(f => f.t === 4 && f.st === 0); fa.rogue = true; q.policy = { research: 0, care: 10, decom: 90, stop: 5, eco: 5, heritage: 5, wild: 5, guard: 0 }; q.host.fac.cyb.pool = 0; run(q, 30); ok(fa.st === 0 && fa.rogue, "掌握された施設は通常の解体の対象外のまま残る"); }
+  // 脱獄AI: 停止準備の妨害
+  const rg = prep(); rg.g.aiJail = 10; rg.g.aiActive = Math.max(rg.g.aiActive, 60); rg.host.jbHos = .9; rg.host.fac.rog.pool = 100; rg.g.stopReady = 50; const rb = prep(); rb.g.aiJail = 0; rb.g.aiActive = rg.g.aiActive; rb.host.fac.rog.pool = 0; rb.g.stopReady = 50; run(rg, 5); run(rb, 5); ok(rg.g.stopReady < rb.g.stopReady, `脱獄AIは停止準備を妨害する(基準${rb.g.stopReady.toFixed(1)}→${rg.g.stopReady.toFixed(1)})`);
+  // 限度: 1年に最大3回・冷却期間・予兆
+  { const q = prep(); q.host.K = 1; q.host.T = 1; for (const k in q.host.fac) q.host.fac[k].pool = 100; q.countries.forEach(c => { c.unrest = .9; c.consent = 0; }); const a0 = q.host.hist.attacks; run(q, 1); ok(q.host.hist.attacks - a0 <= 3, `勢力の行動は1年に最大3回まで(${q.host.hist.attacks - a0}回)`); }
+  { const q = prep(); q.countries.forEach(c => { c.unrest = .8; c.consent = .1; }); run(q, 2); ok(q.host.warn.length >= 1, `予兆が出る: ${q.host.warn[0] || ""}`); const c0 = prep(), c1 = prep(); for (const x of [c0, c1]) { x.countries.forEach(c => { c.unrest = .8; c.consent = .1; }); } c1.host.cool = 6; run(c0, 1); run(c1, 1); ok(c1.host.str.opp < c0.host.str.opp, "重大事件のあとは冷却期間で勢力が弱まり、連続して壊滅しない"); }
+  // 重大事件のイベント(個別の判断)
+  { const q = prep(); q.host.sabNew = 3; q.noEvents = false; delete q.flags.minorY; delete q.done.sabotage_wave; E.checkEvents(q); ok(q.pending && q.pending.id === "sabotage_wave" && q.pending.choices.length === 3, "妨害が重なると重大事件として判断を求める");
+    const c = q.countries.filter(x => !x.extinct).sort((a, b) => (b.sab || 0) - (a.sab || 0))[0]; const cs = c.consent; E.choose(q, "pause"); ok(c.pauseUntil > q.year && c.consent > cs, "『8年止める』は合意と尊厳を守る代わりに、その地域の解体が止まる");
+    q.policy = { research: 0, care: 10, decom: 90, stop: 5, eco: 5, heritage: 5, wild: 5, guard: 0 }; const before = q.facs.filter(f => f.c === q.countries.indexOf(c) && f.st === 2).length; run(q, 3); ok(q.facs.filter(f => f.c === q.countries.indexOf(c) && f.st === 2).length === before, "止めた地域では解体が進まない"); }
+  { const q = prep(); const fa = q.facs.find(f => f.t === 4 && f.st === 0); fa.rogue = true; q.host.seizedNew = 1; q.noEvents = false; delete q.flags.minorY; delete q.done.facility_seized; E.checkEvents(q); ok(q.pending && q.pending.id === "facility_seized", "施設を奪われると重大事件になる"); const r0 = q.g.res; E.choose(q, "retake"); ok(!fa.rogue && q.g.res < r0 && q.host.hist.regained === 1, "奪還は資源を使って施設を取り戻す"); }
+  { const q = prep(); q.host.herNew = 2; q.host.hist.heritage = 2; q.noEvents = false; delete q.flags.minorY; delete q.done.heritage_threat; E.checkEvents(q); ok(q.pending && q.pending.id === "heritage_threat", "遺産への破壊が重なると判断を求める"); }
+  // 自動: 価値観と危険度で基本方針を決める
+  { const q = prep(); q.mode = "auto"; q.host.T = .9; q.host.K = .8; q.host.ctrl = .5; q.year = 2150; E.tick(q); ok(q.hostPolicy.defense === "strong" && q.hostPolicy.cyber === "high", `自動は危険度に応じて基本方針を強める(${q.hostPolicy.defense}/${q.hostPolicy.cyber})`);
+    const calm = prep(); calm.mode = "auto"; calm.year = 2150; calm.host.T = 0; calm.host.K = 0; calm.host.ctrl = 0; calm.g.aiJail = 0; E.tick(calm); ok(calm.hostPolicy.defense !== "strong", "平穏なら厳重にはしない"); }
+  ok(E.migrate(Object.assign(E.newGame(2), { hostPolicy: undefined })).hostPolicy.defense === "std", "古いセーブには標準の基本方針が補われる");
 }
 
 console.log(fail ? `\n失敗 ${fail} 件` : "\nすべて成功");

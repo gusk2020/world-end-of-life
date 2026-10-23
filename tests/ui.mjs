@@ -16,19 +16,26 @@ const adv = (target) => p.evaluate(([t]) => { const g = window.__game, S = g.S, 
 console.log("■ 導入(ゲームマスターの説明)と助走期間の画面");
 {
   const gm = await p.evaluate(() => { const b = document.getElementById("mbox"), t = b.querySelector(".gmb"); return { txt: b.textContent, color: getComputedStyle(t).color, pre: document.body.classList.contains("prelude"), hd: getComputedStyle(document.getElementById("hd")).display, tabs: getComputedStyle(document.getElementById("tabs")).display, cv: !document.getElementById("orbcv").hidden, mt: b.getBoundingClientRect().top < 40 }; });
-  ok(/導入 1\/6/.test(gm.txt) && /ゲームマスター/.test(gm.txt), "起動するとゲームマスターが世界設定を説明する");
+  ok(/導入 1\/5/.test(gm.txt) && /ゲームマスター/.test(gm.txt), "起動するとゲームマスターが世界設定を説明する");
   ok(gm.color === "rgb(255, 255, 255)", "説明本文は白文字");
   ok(gm.pre && gm.hd === "none" && gm.tabs === "none", "導入・助走期間は通常のゲーム画面(砂時計・タブ・速度)を表示しない");
   ok(gm.cv && gm.mt, "窓は画面上部寄せで、下の空き領域に球体のキャンバスがある");
-  const pages = []; for (let i = 0; i < 6; i++) { pages.push(await p.textContent("#mbox h2")); if (await p.locator("#pgnext").count()) await p.click("#pgnext"); }
-  const all = await p.evaluate(() => document.querySelector("#mbox").textContent); ok(pages.length === 6 && pages.join("|").includes("あなたは") && pages.join("|").includes("三つの節目"), "章を順に読める: " + pages.join(" / "));
+  const pages = []; for (let i = 0; i < 5; i++) { pages.push(await p.textContent("#mbox h2")); if (await p.locator("#pgnext").count()) await p.click("#pgnext"); }
+  const all = await p.evaluate(() => document.querySelector("#mbox").textContent); ok(pages.length === 5 && pages.join("|").includes("あなたは") && pages.join("|").includes("三つの節目"), "章を順に読める: " + pages.join(" / "));
   ok(/設定資料/.test(all) && !/仮説です|創作上の設定です/.test(all), "技術注釈は設定資料に集約され、導入で繰り返さない");
   await p.click("[data-pl='0']"); await p.waitForTimeout(150);
   ok(await p.locator("#modal:not([hidden])").count() === 0 && await p.evaluate(() => document.body.classList.contains("prelude")), "導入のあと助走期間の画面になる(通常画面はまだ出ない)");
+  const pre = await p.evaluate(() => { const pc = document.getElementById("precard"), cs = getComputedStyle(pc), r = pc.getBoundingClientRect(); return { top: r.top, y: parseFloat(getComputedStyle(document.getElementById("preyear")).fontSize), border: cs.borderColor, color: getComputedStyle(document.getElementById("prestat")).color }; });
+  ok(pre.top < 40 && pre.y >= 30, `助走期間の窓は上側の1つだけで、年代表示は大きい(${pre.y}px)`);
   await p.waitForSelector("#modal:not([hidden]) #go", { timeout: 12000 });
   const qh = await p.evaluate(() => ({ t: document.getElementById("mbox").textContent, prog: document.querySelectorAll("#mbox .progset").length, go: document.getElementById("go").textContent, st: document.getElementById("modal").classList.contains("stage") }));
   ok(/質問 1\//.test(qh.t) && qh.prog === 0 && qh.st, "助走期間は質問ウィンドウが順に出る(進行設定・速度は出さない)");
+  const wb = await p.evaluate(() => { const cols = new Set(); document.querySelectorAll("#mbox, #mbox *").forEach(e => { const cs = getComputedStyle(e); [cs.color, cs.borderTopColor].forEach(c => { const m = c.match(/rgba?\((\d+), (\d+), (\d+)/); if (m && !(m[1] === m[2] && m[2] === m[3])) cols.add(c); }); }); const yr = parseFloat(getComputedStyle(document.querySelector("#mbox .qyear")).fontSize); return { colored: [...cols], yr, mb: document.getElementById("mbox").getBoundingClientRect(), bu: window.__orbsBurst }; });
+  ok(wb.colored.length === 0, "色を選ぶ前の操作UI(窓・文章・選択肢・ボタン)は白黒だけ" + (wb.colored.length ? ": " + wb.colored.join() : ""));
+  ok(wb.yr >= 26 && wb.mb.bottom < 740 * .72, `質問窓に大きな年代表示があり、下に球体の領域が残る(${wb.yr}px・窓の下端${Math.round(wb.mb.bottom)})`);
   const w1 = await p.evaluate(() => window.__game.S.year); await p.waitForTimeout(600); ok(await p.evaluate(() => window.__game.S.year) === w1, "質問に答えるまで歴史は進まない");
+  await p.click("#mbox .opt >> nth=0"); const bur0 = await p.evaluate(async () => { const m = await import("./js/orbs.js"); return m.orbs.bur || 0; }); await p.click("#go"); const bur1 = await p.evaluate(async () => { const m = await import("./js/orbs.js"); return m.orbs.bur || 0; });
+  ok(bur1 > bur0 && bur1 >= .9, `質問に答えるたびに大きなノイズが走る(${bur0.toFixed(2)}→${bur1.toFixed(2)})`);
   await p.evaluate(() => window.__game.skipPrelude("blue")); await p.waitForTimeout(200);
 }
 console.log("\n■ 360px 表示");
@@ -320,7 +327,7 @@ console.log("\n■ 助走期間→最後の質問→色の選択→砂時計の�
   const c2 = await b.newContext({ viewport: { width: 360, height: 740 }, hasTouch: true }); await c2.addInitScript(() => { if (!localStorage.getItem("weol.init")) { localStorage.setItem("weol.init", "1"); localStorage.setItem("weol.settings", JSON.stringify({ tutorialDone: true, observe: { sec: 5, style: "stop" } })); } });
   const q = await c2.newPage(); const errs2 = [];
   q.on("pageerror", e => errs2.push(e.message)); await q.goto(URL_); await q.waitForTimeout(600);
-  for (let i = 0; i < 5; i++) await q.click("#pgnext"); await q.click("[data-pl='0']");
+  for (let i = 0; i < 4; i++) await q.click("#pgnext"); await q.click("[data-pl='0']");
   const answers = ["safe", "deep", "nature", "protect", "keep", "consent", "stop"]; let asked = [], sawBigUi = false;
   for (let i = 0; i < 400 && !(await q.locator("#cc").count()); i++) {
     if (await q.locator("#modal:not([hidden]) #go").count()) { const id = await q.evaluate(() => window.__game.S.pending && window.__game.S.pending.id); asked.push(id); await q.click(id === "modesel" ? "#mbox [data-c=auto]" : "#mbox .opt >> nth=0"); await q.click("#go"); }
@@ -412,14 +419,17 @@ console.log("\n■ 第6次: 人類消滅後の地球の観察");
   await p.evaluate(() => { const g = window.__game, S = g.S, E = g.E; document.getElementById("modal").hidden = true; g.settings.observe.sec = 0; S.pending = null; S.mode = "auto"; E.runToEnd(S, { choose: (s, pp) => pp.choices[0].id }, 2500); S.__endShown = false; g.refresh(true); });
   await p.waitForSelector("#modal:not([hidden]) .end #pgnext", { timeout: 6000 });
   const e1 = await p.evaluate(() => { const b = document.getElementById("mbox"), r = b.getBoundingClientRect(); return { txt: b.textContent, color: getComputedStyle(b.querySelector(".gmb")).color, top: r.top, stage: document.getElementById("modal").classList.contains("stage"), cv: !document.getElementById("orbcv").hidden, bottom: r.bottom, H: innerHeight }; });
-  ok(/終幕 1\/5/.test(e1.txt), "エンディングは5ページに分かれ、1ページ目から順に読む");
+  ok(/終幕 1\/6/.test(e1.txt), "エンディングは6ページに分かれ、1ページ目から順に読む");
   ok(e1.color === "rgb(255, 255, 255)" && e1.top < 40 && e1.stage && e1.cv && e1.bottom < e1.H * .75, `本文は白文字・窓は上部寄せで、下に球体の空き領域がある(窓の下端 ${Math.round(e1.bottom)}/${e1.H})`);
   const titles = [], lens = [];
-  for (let i = 0; i < 5; i++) { titles.push(await p.textContent("#mbox h2")); lens.push((await p.textContent("#mbox .gmb")).length); if (i < 4) { await p.click("#pgnext"); await p.waitForTimeout(40); } }
-  ok(titles.join("|") === "最後の人類と文明|人類の終活の成果と失敗|地球に残されたもの|未来の観測者による評価|その先の地球へ", "ページ構成: " + titles.join(" / "));
-  ok(Math.max(...lens) < 900, `各ページは短い文章中心(最長${Math.max(...lens)}字)`);
+  for (let i = 0; i < 6; i++) { titles.push(await p.textContent("#mbox h2")); lens.push((await p.textContent("#mbox .gmb")).length); if (i < 5) { await p.click("#pgnext"); await p.waitForTimeout(40); } }
+  ok(titles.join("|") === "最後の人類と文明|人々の最期|終活の成果と失敗|地球に残されたもの|未来の観測者による評価|その先の地球へ", "ページ構成: " + titles.join(" / "));
+  ok(Math.max(...lens) < 700, `各ページは短い文章中心(最長${Math.max(...lens)}字)`);
+  const ed = await p.evaluate(() => ({ hd: getComputedStyle(document.getElementById("hd")).display, tabs: getComputedStyle(document.getElementById("tabs")).display, main: getComputedStyle(document.querySelector("main")).display, cls: document.body.classList.contains("ending"), btn: getComputedStyle(document.querySelector("#mbox button")).color, bg: getComputedStyle(document.getElementById("pre")).backgroundColor }));
+  ok(ed.cls && ed.hd === "none" && ed.tabs === "none" && ed.main === "none", "終幕中は本編UI(地図・レーダー・砂時計・進行操作)を完全に隠す");
+  ok(ed.btn === "rgb(255, 255, 255)" && /rgb\(0, 0, 0\)/.test(ed.bg), "終幕の操作UIは黒背景に白だけ(色は球体だけ)");
   ok(await p.locator("[data-pl]").count() === 3 && await p.locator("#pgnext").count() === 0, "最後のページに『観察する／もう一度／閉じる』が並ぶ");
-  await p.click("#pgback"); ok(/終幕 4\/5/.test(await p.textContent("#mbox")), "戻るで前のページへ"); await p.click("#pgnext");
+  await p.click("#pgback"); ok(/終幕 5\/6/.test(await p.textContent("#mbox")), "戻るで前のページへ"); await p.click("#pgnext");
   const orbOk = await p.evaluate(async () => { const m = await import("./js/orbs.js"), o = m.orbs; await new Promise(r => setTimeout(r, 700)); const r = document.getElementById("mbox").getBoundingClientRect(); return o.orbs.every(q => !(q.x > r.left - q.r + 2 && q.x < r.right + q.r - 2 && q.y > r.top - q.r + 2 && q.y < r.bottom + q.r - 2)) && o.orbs.length === 3; });
   ok(orbOk, "球体は窓の境界で反射し、本文や数値を隠さない");
   await p.click("[data-pl='0']"); await p.waitForTimeout(300);

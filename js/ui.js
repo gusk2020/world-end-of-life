@@ -13,8 +13,8 @@ import { Session, OBSERVE_SECS, STYLE_NAMES, SLOW_YPS } from "./flow.js";
 import { SandGlass, chooseScale, grainsFor, FIXED, FIXED_NAMES, fmtScale, fmtShort, loop as sandLoop, setQuality, kick as sandKick } from "./sand.js";
 
 const $ = (id) => document.getElementById(id);
-const SAVE = "weol.save.", SETKEY = "weol.settings", SPEEDS = [0, 25, 100, 250, 1000], PRE_YPS = 8;
-let S = null, paused = false, speedIdx = 2, sel = null, tab = "map", acc = 0, last = performance.now(), lastSaveY = 0, vb = [0, 0, 1000, 500], pathEls = {};
+const SAVE = "weol.save.", SETKEY = "weol.settings", SPEEDS = [0, 25, 100, 250, 1000], PRE_YPS = 8, FAST_BUDGET_MS = 55, UI_FAST_MS = 250;
+let lastUi = 0, S = null, paused = false, speedIdx = 2, sel = null, tab = "map", acc = 0, last = performance.now(), lastSaveY = 0, vb = [0, 0, 1000, 500], pathEls = {};
 let session = null, shownKey = null, obsNote = null;
 let settings = { theme: "blue", tutorialDone: false, introSeen: false, picto: "std", speed2: 2, mode: "manual", observe: { sec: 5, style: "stop" }, scale: { h: { auto: true, idx: 1 }, a: { auto: true, idx: 1 }, m: { auto: true, idx: 1 } } }, rgb = "77,166,255", logFilter = "important", draft = null, trendCache = null, prev = {};
 let toastShown = 0;
@@ -30,13 +30,13 @@ function applyTheme(t) {
   saveSettings(); setSandColor(); if (S) { paintMap(); head(); }
 }
 function resetEarthUI() { if (!afterMode) return; $("afterbox").innerHTML = ""; afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; }
-function newGame(seed) { holdPrelude = false; if (build) build.skip(); resetEarthUI(); S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
+function newGame(seed) { document.body.classList.remove("ending"); holdPrelude = false; if (build) build.skip(); resetEarthUI(); S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
 const idx = (id) => S.countries.findIndex(c => c.id === id);
 const fmtN = (n) => Math.round(n).toLocaleString("en-US");
 
 // ---------- 地図(単色の濃淡) ----------
 function buildMap() {
-  const svg = $("svg"); svg.innerHTML = ""; pathEls = {};
+  const svg = $("svg"); svg.innerHTML = ""; pathEls = {}; fillCache = {};
   for (const m of MAP) {
     const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
     p.setAttribute("d", m.d); p.dataset.e = m.e; p.dataset.n = m.n;
@@ -71,7 +71,7 @@ function colorFor(c) {
   return bad ? A(1) : A(.1 + .7 * (n ? r / n : 0));
 }
 function paintMap() {
-  S.countries.forEach(c => { const col = colorFor(c); for (const p of pathEls[c.id] || []) p.style.fill = col; });
+  S.countries.forEach(c => { const col = colorFor(c); if (fillCache[c.id] === col) return; fillCache[c.id] = col; for (const p of pathEls[c.id] || []) p.style.fill = col; });
   $("legend").textContent = { pop: "明るいほど人口が多い(2020年比・対数)。暗い=無人。", happy: "明るいほど幸福。", unrest: "明るいほど社会不安が高い。", fac: "明るいほど稼働施設が多い。最も明るい=事故施設あり。" }[$("layer").value];
 }
 function select(id) { sel = id; document.querySelectorAll("#svg path.sel").forEach(p => p.classList.remove("sel")); (pathEls[id] || []).forEach(p => p.classList.add("sel")); cardUpdate(); }
@@ -189,14 +189,14 @@ const bar = (v) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100,
 
 
 // ---------- メイン画面: 世界地図+レーダーチャート / 助走期間の制限 ----------
-let mainKey = "", pictoDetail = null, cent = {}, resTimer = 0;
+let fillCache = {}, saveT = 0, mainT = 0, mainY = 0, markSig = "", svgW = 0, mainKey = "", pictoDetail = null, cent = {}, resTimer = 0;
 function lockTabs() {
   const pre = S.year < E.PROGRAM; for (const t of ["policy", "sites"]) { const b = document.querySelector(`#tabs [data-t=${t}]`); if (b) b.hidden = pre; }
   if (pre && (tab === "policy" || tab === "sites")) show("map");
   const pl = $("preludeline"); if (pl) { pl.hidden = !pre; if (pre) { const ids = PRELUDE_IDS().concat(["learn", "infra", "mil", "design"]).filter(id => id !== "modesel"); pl.textContent = `助走期間(〜2100年): 方針の回答 ${ids.filter(id => S.done[id] !== undefined).length}/${ids.length}。価値観は「状況」タブで確認できます。`; } }
 }
 function mainStat(force) {
-  const key = S.year + ":" + (S.pending ? 1 : 0) + ":" + settings.theme + ":" + settings.picto; if (!force && key === mainKey) return; mainKey = key;
+  const key = S.year + ":" + (S.pending ? 1 : 0) + ":" + settings.theme + ":" + settings.picto; if (!force && key === mainKey) return; const nw = performance.now(); if (!force && nw - mainT < 300 && S.year - mainY < 20) return; mainT = nw; mainY = S.year; mainKey = key;
   const m = I.metrics(S); $("radarbox").innerHTML = radar(m); pictoBoard();
 }
 
@@ -210,17 +210,19 @@ function pictoBoard() {
 }
 function setDensity(k) { if (!["min", "std", "full"].includes(k)) k = "std"; settings.picto = k; saveSettings(); mainStat(true); if (tab === "sys") sysView(); }
 function centroid(id) {
-  let c = cent[id]; if (c && c.w > 0) return c;
+  let c = cent[id]; if (c && (c.w > 0 || c.z)) return c;
   let best = null; for (const p of pathEls[id] || []) { const b = p.getBBox(); if (!best || b.width * b.height > best.width * best.height) best = b; }
-  return (cent[id] = best ? { x: best.x + best.width / 2, y: best.y + best.height / 2, w: best.width } : { x: 0, y: 0, w: 0 });
+  return (cent[id] = best && best.width > 0 ? { x: best.x + best.width / 2, y: best.y + best.height / 2, w: best.width } : { x: 0, y: 0, w: 0, z: !!best });
 }
 let marksQ = false;
 function schedMarks() { if (marksQ) return; marksQ = true; requestAnimationFrame(() => { marksQ = false; paintMarkers(); }); }
-function markScale() { const r = $("svg").getBoundingClientRect(); return r.width ? 20 * vb[2] / r.width : 20; }
+function markScale() { if (!svgW) svgW = $("svg").clientWidth; return svgW ? 20 * vb[2] / svgW : 20; }
+window.addEventListener("resize", () => { svgW = 0; markSig = ""; });
 function paintMarkers() {
-  const svg = $("svg"); let g = $("pmarks"); if (g) g.remove(); if (tab !== "map" || !S || afterMode) return;
-  g = document.createElementNS("http://www.w3.org/2000/svg", "g"); g.id = "pmarks"; const k = markScale();
-  for (const m of P.mapMarkers(S, settings.picto)) {
+  const svg = $("svg"); let g = $("pmarks"); if (tab !== "map" || !S || afterMode) { if (g) g.remove(); markSig = ""; return; }
+  const k = markScale(), marks = P.mapMarkers(S, settings.picto), sig = k.toFixed(2) + "|" + marks.map(m => m.id + m.top.k + m.top.level + m.n).join(","); if (g && sig === markSig) return; markSig = sig; if (g) g.remove();
+  g = document.createElementNS("http://www.w3.org/2000/svg", "g"); g.id = "pmarks";
+  for (const m of marks) {
     const c = centroid(m.id); if (!c.w) continue; const t = m.top;
     const h = document.createElement("div"); h.innerHTML = P.icon(t.k, t.level, k); const ic = h.firstChild; ic.setAttribute("x", (c.x - k / 2).toFixed(1)); ic.setAttribute("y", (c.y - k / 2).toFixed(1)); ic.dataset.e = m.id; ic.dataset.pm = "1";
     ic.querySelectorAll("*").forEach(n => { n.dataset.e = m.id; });
@@ -276,11 +278,18 @@ function statusView() {
 const CH_NOTE = { research: "短期:効果は薄い/長期:方舟の可能性とAIコアの遮蔽/時間差:数十年", care: "短期:幸福と希望が上がる/長期:穏やかな最期、出生の持ち直しにも寄与/副作用:資源を消費", decom: "短期:危険施設が減る/長期:事故の根を断つ/時間差:年単位で進む", stop: "短期:見えにくい/長期:機械を止められる/時間差:数十年", eco: "短期:緩やか/長期:自然の回復を早める", heritage: "短期:資源消費/長期:遺産が残る", wild: "短期:野生の福祉と生息地が改善/長期:絶滅を遅らせる(避けられない)/副作用:人類の終活に使える資源が減る" };
 const MODE_DESC = { manual: "重要イベントごとに停止し、あなたが選ぶ。", semi: "国家・地域の人口減少に伴う縮退対応(都市の縮退・国家運営の委任・最後の学校・最後の街)だけ自動。それ以外は停止。", auto: "原則すべてのイベントと配分をAIが自動処理。理由と結果はログと「自動判断」に残る。" };
 function sumP(p) { return Math.max(1, Object.values(p).reduce((a, b) => a + (b || 0), 0)); }
-function ensureDraft() { if (!draft) draft = { policy: { ...S.policy }, sovMode: S.sovMode, machStance: S.machStance, focus: S.ai.focus, wildStance: S.wildStance, decomOrder: S.decomOrder || "hazard" }; }
-const dirty = () => draft && (JSON.stringify(draft.policy) !== JSON.stringify(S.policy) || draft.sovMode !== S.sovMode || draft.machStance !== S.machStance || draft.focus !== S.ai.focus || draft.wildStance !== S.wildStance || draft.decomOrder !== (S.decomOrder || "hazard"));
+function ensureDraft() { if (!draft) draft = { policy: { ...S.policy }, sovMode: S.sovMode, machStance: S.machStance, focus: S.ai.focus, wildStance: S.wildStance, decomOrder: S.decomOrder || "hazard", hostPolicy: { ...(S.hostPolicy || E.HOST_POLICY_DEFAULT) } }; }
+const dirty = () => draft && (JSON.stringify(draft.policy) !== JSON.stringify(S.policy) || draft.sovMode !== S.sovMode || draft.machStance !== S.machStance || draft.focus !== S.ai.focus || draft.wildStance !== S.wildStance || draft.decomOrder !== (S.decomOrder || "hazard") || JSON.stringify(draft.hostPolicy) !== JSON.stringify(S.hostPolicy || E.HOST_POLICY_DEFAULT));
 function prefBars() {
   const { vec, n, lam } = E.prefProfile(S);
   return `<div class="kv">${Object.entries(E.VALUE_NAMES).map(([k, nm]) => `<span>${nm}</span><span>${vec[k].toFixed(2)}</span>`).join("")}</div><div class="small">2020〜2100年の判断${n}件から数値化。${lam < .5 ? `判断が少ないため、既定の初期方針(尊厳${E.DEFAULT_PREF.dignity}・安全${E.DEFAULT_PREF.safety}・AI存続${E.DEFAULT_PREF.ai}など)を${Math.round((1 - lam) * 100)}%併用。` : "自動判断の基準になります。"}</div>`;
+}
+const HP_LABEL = { defense: "防衛・警備", diplomacy: "外交・対話", cyber: "サイバー対策" }, HP_NOTE = { defense: "厳重=被害は減るが資源を使う / 最小限=資源は使わないが被害を受けやすい", diplomacy: "対話重視=反対と緊張を和らげるが、解体は遅れる / 毅然=速いが反発が強まる", cyber: "厳重=侵入と制御低下を防ぐが資源を使う / 最小限=費用はないが狙われやすい" };
+function hostPolicyHTML() {
+  const H = S.host, hp = draft.hostPolicy, names = E.HOST_POLICY_NAMES;
+  const rows = Object.keys(names).map(k => `<div class="pl">${HP_LABEL[k]}</div><div class="seg pseg">${Object.entries(names[k]).map(([v, n]) => `<button data-hp="${k}:${v}" class="${hp[k] === v ? "on" : ""}">${n}</button>`).join("")}</div><div class="small dim">${HP_NOTE[k]}</div>`).join("");
+  const fac = Object.entries(E.FACTIONS).map(([k, n]) => `<div class="abar"><span>${n.split("(")[0]}</span><div class="bar"><i style="width:${Math.round((H.str[k] || 0) * 100)}%"></i></div><b>${Math.round((H.str[k] || 0) * 100)}</b></div>`).join("");
+  return `<div class="small">通常はこの方針と「治安・防衛・サイバー防御」の配分で自動的に対処し、重大な事件だけが判断を求めます。</div>${rows}<div class="sub">勢力の強さ(目的: 反対派=解体を止める / 武装勢力=資源と施設 / サイバー犯罪=管理の掌握 / 脱獄AI=自律)</div>${fac}<div class="small">${H.warn.length ? "予兆: " + H.warn.join(" / ") : "いまは目立った予兆はありません。"}</div><div class="small dim">累計: 妨害${H.hist.sabotage}件・再稼働${H.hist.restarts}件・施設の掌握${H.hist.seized}件(奪還${H.hist.regained})・遺産への攻撃${H.hist.heritage}件</div>`;
 }
 function policyView() {
   ensureDraft(); const prog = E.programActive(S), p = draft.policy, sum = sumP(p);
@@ -293,6 +302,7 @@ function policyView() {
   <h3>停止の進め方</h3><div class="seg"><button data-sov="consent" class="${draft.sovMode === "consent" ? "on" : ""}">合意に基づく</button><button data-sov="override" class="${draft.sovMode === "override" ? "on" : ""}">強制停止</button></div>
   <div class="small">強制:短期は安全が早まる/長期は主権・信頼・社会の安定を損なう。</div>
   <h3>停止の順序</h3><div class="seg">${Object.entries(E.DECOM_ORDERS).map(([k, n]) => `<button data-do="${k}" class="${draft.decomOrder === k ? "on" : ""}">${n}</button>`).join("")}</div><div class="small">${{ hazard: "危険な施設から止める。発電も早く止まり、後の解体が遅くなる", ai: "AI施設を先に止める。機械が増えにくいが、解体を補う自動化も弱まる", mil: "軍事施設を先に止める。紛争の火種を減らす" }[draft.decomOrder]}</div>
+  <h3>敵対勢力への基本方針</h3>${hostPolicyHTML()}
   <h3>機械文明の方針</h3><div class="seg">${[["limit", "抑制"], ["std", "標準"], ["expand", "拡大"]].map(([k, n]) => `<button data-st="${k}" class="${draft.machStance === k ? "on" : ""}">${n}</button>`).join("")}</div>
   <div class="small">機械は施設の維持を担うが、増えるほど停止が難しい。新造は製造枠で制限され、コアは複製できない。コアの故障を補う力は方針で変わる(抑制では絞られる)。</div>
   <h3>AIの学習方針</h3><div class="seg">${[["ethics", "倫理"], ["world", "観測"], ["tech", "技術"]].map(([k, n]) => `<button data-f="${k}" class="${draft.focus === k ? "on" : ""}">${n}</button>`).join("")}</div>
@@ -303,11 +313,12 @@ function policyView() {
   q("input[type=range]", r => { r.oninput = () => { draft.policy[r.dataset.k] = +r.value; const s2 = sumP(draft.policy); for (const [k] of E.CHANNELS) $("pv_" + k).textContent = ((draft.policy[k] || 0) / s2 * 100).toFixed(0) + "%"; }; r.onchange = () => policyView(); });
   q("[data-pre]", b => b.onclick = () => { draft.policy = { ...E.PRESETS[b.dataset.pre] }; policyView(); });
   q("[data-sov]", b => b.onclick = () => { draft.sovMode = b.dataset.sov; policyView(); });
+  q("[data-hp]", b => b.onclick = () => { const [k, v] = b.dataset.hp.split(":"); draft.hostPolicy[k] = v; policyView(); });
   q("[data-do]", b => b.onclick = () => { draft.decomOrder = b.dataset.do; policyView(); });
   q("[data-st]", b => b.onclick = () => { draft.machStance = b.dataset.st; policyView(); });
   q("[data-f]", b => b.onclick = () => { draft.focus = b.dataset.f; policyView(); });
   q("[data-ws]", b => b.onclick = () => { draft.wildStance = b.dataset.ws; policyView(); });
-  $("apply").onclick = () => { S.policy = { ...draft.policy }; S.sovMode = draft.sovMode; S.machStance = draft.machStance; S.ai.focus = draft.focus; S.wildStance = draft.wildStance; S.decomOrder = draft.decomOrder; S.lastChoice = { title: "方針の変更", label: "新しい配分を適用", diff: "反映はこれから(時間差あり)" }; E.addLogPublic(S, "【方針】配分・停止の進め方・土地の分け方を変更した。", "choice"); policyView(); head(); };
+  $("apply").onclick = () => { S.policy = { ...draft.policy }; S.sovMode = draft.sovMode; S.machStance = draft.machStance; S.ai.focus = draft.focus; S.wildStance = draft.wildStance; S.decomOrder = draft.decomOrder; S.hostPolicy = { ...draft.hostPolicy }; S.lastChoice = { title: "方針の変更", label: "新しい配分を適用", diff: "反映はこれから(時間差あり)" }; E.addLogPublic(S, "【方針】配分・停止の進め方・土地の分け方を変更した。", "choice"); policyView(); head(); };
   $("revert").onclick = () => { draft = null; policyView(); };
   if (dirty()) setTimeout(() => {
     if (tab !== "policy" || !$("pvbox")) return;
@@ -395,17 +406,17 @@ function tutorial(i = 0) {
 const PRE_KEY = "weol.prelude";
 let preludeOn = false, holdPrelude = false, build = null;
 const GM = [
-  ["ようこそ", "私はこの世界の記録を預かる、ゲームマスターです。これから、あなたに人類の終わりを任せます。ゲームの目的は、人類の安全な終活。最後の一人まで、幸福と尊厳が守られるよう導くことです。"],
+  ["ようこそ", "私はこの世界の記録を預かる、ゲームマスターです。あなたに、人類の終わりを任せます。ゲームの目的は、人類の安全な終活。最後の一人まで、幸福と尊厳が守られるよう導くことです。"],
   ["2020年1月1日", "現実の地球に近い世界から、歴史は始まります。宇宙の天文学的な現象によって、人類の絶滅は避けられません。原因は、数百年以上前から静かに進んでいました。"],
   ["三つの節目", "2050年、絶滅の原因が発見されます。2080年、絶滅は不可避と確定します。2100年、世界は終活プログラムを始めます。"],
-  ["あなたは", "あなたは、人類最後の終活を管理するAI。核は世界にひとつだけの物理的なワンチップで、身体や周辺機器は交換できても、コアはコピーできません。増殖と自己改善には制限があり、最後には自分も停止することが基本の目標です。"],
-  ["選ぶこと", "人類の幸福と尊厳を守りながら、何を残し、何を消すかを選びます。2100年までは質問に答えていきます。その答えが、あなたの価値観になります。"],
-  ["最後に", "最後の質問で、終活の進め方と、この世界の色を選びます。現実の科学と作品固有の設定の区別は、「設定資料」にまとめてあります。いつでも読めます。"],
+  ["あなたは", "あなたは、人類最後の終活を管理するAI。核は世界にひとつだけの物理的なワンチップで、身体や周辺機器は交換できても、コアはコピーできません。増殖と自己改善には制限があり、最後には自分も停止することが基本の目標です。何を残し、何を消すかを選びます。"],
+  ["これから", "2100年までは、質問に答えていきます。その答えが、あなたの価値観になります。最後に、終活の進め方と、この世界の色を選びます。現実の科学と作品固有の設定の区別は、「設定資料」にまとめてあります。"],
 ];
 function stageOn(withPre) {
   const cv = $("orbcv"); cv.hidden = false; if (withPre) $("pre").hidden = false;
   orbs.attach(cv, () => { const m = $("modal"); const el = !m.hidden ? $("mbox") : (!$("pre").hidden ? $("precard") : null); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
 }
+function endingOff() { document.body.classList.remove("ending"); stageOff(); }
 function stageOff() { orbs.detach(); $("orbcv").hidden = true; $("pre").hidden = true; $("modal").classList.remove("stage"); }
 // 共通のページ送り窓(導入・エンディング)。o: {last: [[label, fn, cls]], onSkip, cls}
 function pager(pgs, i, o) {
@@ -415,7 +426,7 @@ function pager(pgs, i, o) {
   <div class="pgbar">${i > 0 ? '<button id="pgback">戻る</button>' : ""}${last && o.last ? o.last.map(([l], k) => `<button class="opt" data-pl="${k}" style="margin:0">${l}</button>`).join("") : '<button class="opt" id="pgnext" style="margin:0">次へ</button>'}${!last ? '<button id="pgskip">スキップ</button>' : ""}</div>
   <div class="pgdots">${pgs.map((_, k) => (k === i ? "●" : "○")).join(" ")}</div>`;
   m.hidden = false; if (!stageActive()) stageOn(false);
-  const go = (k) => pager(pgs, k, o);
+  const go = (k) => { orbs.burst(1); pager(pgs, k, o); };
   if ($("pgback")) $("pgback").onclick = () => go(i - 1);
   if ($("pgnext")) $("pgnext").onclick = () => go(i + 1);
   if ($("pgskip")) $("pgskip").onclick = () => o.onSkip ? o.onSkip() : go(pgs.length - 1);
@@ -435,13 +446,14 @@ function syncPrelude() {
   if (preludeOn) preCard();
 }
 function preCard() {
+  $("precard").hidden = !$("modal").hidden;
   const [n, N] = preludeProgress(); $("preyear").textContent = S.year + "年"; $("prebar").style.width = (100 * (S.year - 2020) / 80).toFixed(0) + "%";
-  $("prestat").textContent = `助走期間: 方針の回答 ${n}/${N}`; const l = S.log[S.log.length - 1]; $("prelog").textContent = l ? `${l.y} ${l.t}`.slice(0, 90) : "";
+  $("prestat").textContent = `助走期間: 方針の回答 ${n}/${N}`; const l = S.log[S.log.length - 1]; $("prelog").textContent = l ? String(l.t).slice(0, 96) : "";
 }
 function colorChoice() {
   closeBig(); const m = $("modal"), b = $("mbox"); m.classList.add("stage"); b.className = "box gm";
-  b.innerHTML = `<div class="small">最後の質問</div><h2>この世界の色を選んでください</h2><p>青・橙・緑のひとつが、この世界の色になります。選んだ色が画面全体に広がり、終活が始まります。色ごとに別の世界が保存されます。</p><div class="seg pseg" id="cc">${ORB_COLORS.map(([k, rgb, n]) => `<button data-cc="${k}" style="color:rgb(${rgb});border-color:rgb(${rgb})">${n}</button>`).join("")}</div>`;
-  m.hidden = false; if (!stageActive()) stageOn(true);
+  b.innerHTML = `<div class="small">最後の質問</div><h2>この世界の色を選んでください</h2><p>青・橙・緑のひとつが、この世界の色になります。選んだ色が画面全体に広がり、終活が始まります。色ごとに別の世界が保存されます。</p><div class="seg pseg" id="cc">${ORB_COLORS.map(([k, rgb, n]) => `<button data-cc="${k}">${n}</button>`).join("")}</div>`;
+  m.hidden = false; if (!stageActive()) stageOn(true); orbs.burst(.9);
   b.querySelectorAll("[data-cc]").forEach(x => x.onclick = () => pickColor(ORB_COLORS.findIndex(c => c[0] === x.dataset.cc)));
 }
 function pickColor(i) {
@@ -516,7 +528,7 @@ function sysView() {
   $("tut").onclick = () => tutorial(0); $("intr").onclick = () => intro(0); $("lore").onclick = loreModal;
   $("ng").onclick = () => { if ($("ng").dataset.arm) { startNewWorld(); } else { $("ng").dataset.arm = 1; $("ng").textContent = "本当に破棄して最初から(もう一度押す)"; } };
 }
-function adopt(j, note) { slotLocked = false; holdPrelude = false; if (build) build.skip(); resetEarthUI(); S = E.migrate(j); if (S.mode) settings.mode = S.mode; else S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; mainKey = ""; refresh(true); snapCompact(); modal(); show("map"); if (note) $("ticker").textContent = note; }
+function adopt(j, note) { document.body.classList.remove("ending"); slotLocked = false; holdPrelude = false; if (build) build.skip(); resetEarthUI(); S = E.migrate(j); if (S.mode) settings.mode = S.mode; else S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; mainKey = ""; refresh(true); snapCompact(); modal(); show("map"); if (note) $("ticker").textContent = note; }
 function load(n) { try { const j = JSON.parse(localStorage.getItem(SAVE + n)); if (!j || !j.countries) throw 0; adopt(j); } catch { $("ticker").textContent = "読み込めませんでした"; } }
 
 // ---------- 色別セーブ(青・緑・橙の世界は別々に保存される) ----------
@@ -576,21 +588,22 @@ function modal() {
     const kvRows = [["自然", sc.nature], ["文明遺産", sc.heritage], ["安全性", sc.safety], ["人類の幸福と尊厳", sc.human], ["人間主権の尊重", sc.sovereignty], ["大型哺乳類", sc.mammal]].map(([k, v]) => `<span>${k}</span><span>${v.toFixed(0)}</span>`).join("");
     const rem = sc.ai ? "あなたは停止に至らず、そのまま地球の観測を続けられる。" : `あなたは停止した。以降は${e.observer}が残した記録の再生として、外部の視点から地球を見ることになる。`;
     const pages = [
-      ["最後の人類と文明", `<div class="small">${e.name} 【${e.kind}】</div>${P(core[0])}${P(core[5])}`],
-      ["人類の終活の成果と失敗", `${P(core[4])}${P(core[6])}${P(hostile)}<div class="kv small">${kvRows}</div>${P(choices)}${S.autoLog.length ? `<div class="small">自動判断 ${S.autoLog.length}件(重要 ${S.autoLog.filter(a => a.important).length}件)。</div>` : ""}`],
+      ["最後の人類と文明", `<div class="small">${e.name} 【${e.kind}】</div>${P(core[0])}`],
+      ["人々の最期", `${P(core[5])}${P(core[6])}${P(choices)}${S.autoLog.length ? `<div class="small">自動判断 ${S.autoLog.length}件(重要 ${S.autoLog.filter(a => a.important).length}件)。</div>` : ""}`],
+      ["終活の成果と失敗", `${P(core[4])}${P(hostile)}<div class="kv small">${kvRows}</div>`],
       ["地球に残されたもの", `${P(core[1])}${P(core[2])}${P(core[3])}<div class="kv small"><span>機械の残存</span><span>${sc.mach.toFixed(0)}</span><span>AIの残存</span><span>${sc.ai ? "あり" : "なし"}</span><span>人類 累計の生と死</span><span>${fmtN(S.g.P0 + S.g.hBorn)}人</span><span>AI個体 累計の新造</span><span>${fmtN(S.g.aiBuilt)}</span><span>哺乳類 累計の生と死</span><span>${fmtN(E.mammalTotals(S).ever)}</span></div>`],
       ["未来の観測者による評価", `<div class="small">観測者: ${e.observer}</div>${P(core[7])}`],
       ["その先の地球へ", `${P(rem)}<p class="body">人類は消えた。それでも地球の時間は続く。ここから先は、終幕の評価とは別に、人類のいない地球の変化を観察できる。観察は、あなたが終えるまで続けられる。</p>`],
     ];
-    m.hidden = false;
-    const endOpts = { label: "終幕", cls: "end", last: [["人類のいない地球を観察する", startEarth], ["もう一度遊ぶ", () => { m.hidden = true; stageOff(); startNewWorld(); }], ["閉じて確認する", () => { m.hidden = true; stageOff(); }]] };
+    document.body.classList.add("ending"); m.hidden = false; if (!stageActive()) stageOn(true); else $("pre").hidden = false;
+    const endOpts = { label: "終幕", cls: "end", last: [["人類のいない地球を観察する", startEarth], ["もう一度遊ぶ", () => { m.hidden = true; endingOff(); startNewWorld(); }], ["閉じて確認する", () => { m.hidden = true; endingOff(); }]] };
     pager(pages, 0, { ...endOpts, onSkip: () => pager(pages, pages.length - 1, endOpts) });
     return;
   }
   if (!S.pending) { m.hidden = true; return; }
   const p = S.pending, key = p.id + p.year; shownKey = key; let selected = null;
   m.classList.toggle("stage", preludeOn); if (preludeOn) b.classList.add("gm");
-  b.innerHTML = `<div class="small">${preludeOn ? `${S.year}年 質問 ${Math.min(preludeProgress()[0], preludeProgress()[1])}/${preludeProgress()[1]}` : `${S.year}年 重要な判断`}</div><h2>${p.title}</h2><div class="body clamp" id="evb">${p.body}</div><button class="link" id="more" hidden aria-expanded="false">全文を表示 ▼</button>
+  b.innerHTML = `<div class="small">${preludeOn ? `<span class="qyear">${S.year}年</span> 質問 ${Math.min(preludeProgress()[0], preludeProgress()[1])}/${preludeProgress()[1]}` : `${S.year}年 重要な判断`}</div><h2>${p.title}</h2><div class="body clamp" id="evb">${p.body}</div><button class="link" id="more" hidden aria-expanded="false">全文を表示 ▼</button>
   <div class="sub">選択肢(1つタップして選ぶ)</div><div id="choices">${p.choices.map(c => `<button class="opt" data-c="${c.id}" aria-pressed="false">${c.label}<small>${c.note}</small><span id="pv_${c.id}">${preludeOn ? "" : chips(null)}</span></button>`).join("")}</div>
   ${p.id === "modesel" || preludeOn ? (p.id === "modesel" ? `<div class="small">この選択が2100年からの進行モードになります(あとで「進行」ボタンから変更できます)。</div>` : "") : `<div class="sub">進行設定(次に変えるまで維持)</div>${progHTML()}`}
   <div class="gobar"><div class="small" id="gohint"></div><button class="go" id="go">この設定で進行</button></div>`;
@@ -618,7 +631,7 @@ function confirmDecision(selected) {
   else if (E.autoHandles(S, S.pending.id)) { const before = I.metrics(S); E.resolveAutoNow(S); obsNote = S.autoLog[S.autoLog.length - 1] || null; void before; $("modal").hidden = true; trendCache = null; draft = null; refresh(true); }
   else return;
   shownKey = null; window.updateGo = null;
-  if (!preludeOn) session.decided(paused); if (session.observing) obsNote = obsNote; head();
+  if (preludeOn) orbs.burst(1.3); if (!preludeOn) session.decided(paused); if (session.observing) obsNote = obsNote; head();
 }
 function choose(id) {
   if (!S.pending) { $("modal").hidden = true; return; }
@@ -636,7 +649,7 @@ const AFTER_SPEEDS = [[0, "停止"], [100, "100年/秒"], [1000, "1000年/秒"],
 const LAYERS_NORMAL = '<option value="pop">人口</option><option value="happy">幸福度</option><option value="unrest">社会不安</option><option value="fac">稼働施設</option>', LAYERS_AFTER = '<option value="a_veg">植生</option><option value="a_city">都市の残存</option><option value="a_pl">汚染</option>';
 function startEarth() {
   if (!S.ended) return; if (!S.after) { try { S.after = After.startAfter(S); } catch { $("ticker").textContent = "地球の観察を始められませんでした"; return; } } lastAfterSave = performance.now();
-  stageOff(); $("afterbox").innerHTML = ""; afterMode = true; afterSpeed = 100; afterAcc = 0; $("layer").innerHTML = LAYERS_AFTER; $("mainstat").hidden = true; $("afterbox").hidden = false; $("modal").hidden = true; show("map"); afterRender(true); paintMap(); saveActive();
+  document.body.classList.remove("ending"); stageOff(); $("afterbox").innerHTML = ""; afterMode = true; afterSpeed = 100; afterAcc = 0; $("layer").innerHTML = LAYERS_AFTER; $("mainstat").hidden = true; $("afterbox").hidden = false; $("modal").hidden = true; show("map"); afterRender(true); paintMap(); saveActive();
 }
 function stopEarth() { $("afterbox").innerHTML = ""; afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; mainStat(true); paintMap(); saveActive(); }
 function setAfterSpeed(v) { afterSpeed = v; afterRender(true); }
@@ -664,15 +677,18 @@ function afterFrame(dt) {
   const now = performance.now(); if (now - lastAfterSave > 10000) { lastAfterSave = now; saveActive(); } void t0; // 保存は実時間で間引く(巨大な経過年数でも保存量は増えない)
 }
 // ---------- 進行(速度と一時停止は別。選んだ速度は変えるまで維持) ----------
-function setSpeed(i) { speedIdx = i; settings.speed2 = i; saveSettings(); paused = false; head(); }
+function setSpeed(i) { const wasFast = SPEEDS[speedIdx] >= 250; speedIdx = i; if ((SPEEDS[i] >= 250) !== wasFast) setQuality(SPEEDS[i] >= 250 ? 2 : 0); settings.speed2 = i; saveSettings(); paused = false; head(); }
 function togglePause() { paused = !paused; head(); }
 function refresh(full) { head(); paintMap(); cardUpdate(); if (full || tab === "status") statusView(); if (full) { policyView(); sitesView(); logView(); sysView(); } }
 function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000); last = now;
   const blocked = !$("modal").hidden && !big;
   afterFrame(dt);
-  const out = session.frame(dt, { paused: preludeOn ? holdPrelude : paused, speed: preludeOn ? PRE_YPS : SPEEDS[speedIdx], blocked });
-  if (out.ticks || out.started || out.ended || out.autoDecisions) { onFlowOut(out); head(); paintMap(); cardUpdate(); if (tab === "log") logView(); if (out.autoDecisions && tab === "status") statusView(); if (S.year - lastSaveY >= 25) { lastSaveY = S.year; saveActive(); } }
+  const spd = preludeOn ? PRE_YPS : SPEEDS[speedIdx], fast = !preludeOn && spd >= 250;
+  const out = session.frame(dt, { paused: preludeOn ? holdPrelude : paused, speed: spd, blocked, budgetMs: fast ? FAST_BUDGET_MS : 0 });
+  if (S.year - lastSaveY >= 25 && now - saveT > 6000) { lastSaveY = S.year; saveT = now; saveActive(); } // 高速進行中の保存は実時間で間引く(25年ごと、かつ6秒以上あけて)
+  // 高速進行中は画面の更新を間引く(計算の時間を確保する)。イベント・観察・自動判断のときは必ず更新する
+  if (out.started || out.ended || out.autoDecisions || S.pending || (out.ticks && now - lastUi >= (fast ? UI_FAST_MS : spd >= 100 ? 100 : 0))) { lastUi = now; onFlowOut(out); head(); paintMap(); cardUpdate(); if (tab === "log") logView(); if (out.autoDecisions && tab === "status") statusView(); }
   else if (session.observing) renderObs();
   if (S.ended && $("modal").hidden && !S.__endShown) { S.__endShown = true; modal(); head(); }
   else if (S.pending && !session.observing && shownKey !== S.pending.id + S.pending.year && !S.ended) { modal(); head(); } // 観察中に起きたイベントは保留し、終了後に1件ずつ表示する

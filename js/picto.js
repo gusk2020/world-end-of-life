@@ -59,9 +59,9 @@ export function assess(s) {
   add("mammal", lv(w.alive / w.n0, .7, .4, false), `大型哺乳類 ${(w.alive / w.n0 * 100).toFixed(0)}%`);
   add("pop", lv(pr, .5, .2, false), `人口 ${(pr * 100).toFixed(0)}%(自然な減少)`);
   add("unrest", lv(unrest, .35, .6), `社会不安 ${(unrest * 100).toFixed(0)}`);
-  const coop = s.coop ?? 1, H = s.host || { T: 0, K: 0, ctrl: 0 }; add("conflict", lv(Math.max(H.K * 1.2, 1 - coop, H.T - .2), .25, .5), `緊張${(H.T * 100).toFixed(0)}% / 武力衝突${(H.K * 100).toFixed(0)}% / 協力度${(coop * 100).toFixed(0)}%`);
+  const coop = s.coop ?? 1, H = s.host || { T: 0, K: 0, ctrl: 0 }; add("conflict", lv(Math.max(H.K * 1.2, 1 - coop, H.T - .2), .25, .5), `緊張${(H.T * 100).toFixed(0)}% / 武力衝突${(H.K * 100).toFixed(0)}% / 協力度${(coop * 100).toFixed(0)}%` + (H.str ? ` / 反対派${(H.str.opp * 100).toFixed(0)}・武装${(H.str.raid * 100).toFixed(0)}` : ""));
   add("cyber", lv(H.ctrl, .15, .35), `制御低下 ${(H.ctrl * 100).toFixed(0)}% / 防御 ${((H.def || 0) * 100).toFixed(0)}%`);
-  add("jail", lv(s.g.aiJail || 0, 1, 4), `脱獄中のAI ${s.g.aiJail || 0}体(稼働${s.g.aiActive}体の内数)`);
+  add("jail", lv((s.g.aiJail || 0) + s.facs.filter(f => f.rogue).length, 1, 4), `脱獄中のAI ${s.g.aiJail || 0}体(稼働${s.g.aiActive}体の内数)・管理下を離れた施設${s.facs.filter(f => f.rogue).length}か所`);
   return out;
 }
 const ORDER = { bad: 0, warn: 1, ok: 2 };
@@ -83,6 +83,8 @@ export function countryIssues(s, i) {
   const c = s.countries[i], out = []; if (c.extinct) return out;
   const add = (k, level, txt) => { if (level !== "ok") out.push({ k, label: kindLabel(k), level, txt }); };
   for (const k of ["nuc", "chem", "mil", "dam"]) { const st = facStat(s, FACK[k], i); const l = !st.run ? "ok" : st.low > 2 ? "bad" : st.low > 0 ? "warn" : "ok"; add(k, l, `${st.run}基稼働 / 余裕低${st.low}基`); }
+  add("conflict", lv(c.sab || 0, .25, .5), `破壊活動の被害 ${((c.sab || 0) * 100).toFixed(0)}%`);
+  { const rg = s.facs.filter(f => f.c === i && f.rogue).length; add("jail", rg ? (rg > 1 ? "bad" : "warn") : "ok", `管理下を離れたAI施設 ${rg}か所`); }
   add("unrest", lv(c.unrest, .35, .6), `社会不安 ${(c.unrest * 100).toFixed(0)}`);
   if (s.reach && s.year >= E.PROGRAM && s.facs.some(f => f.c === i && f.st < 2)) add("decomstall", lv(s.reach[i], .9, .6, false), `解体の実効力 ${s.reach[i].toFixed(2)}`);
   add("energy", lv(c.sup ?? 1, .4, .25, false), `発電能力 ${((c.sup ?? 1) * 100).toFixed(0)}%`);

@@ -3,6 +3,7 @@
 //  - SandGlass: Canvas に描く(輪郭・くびれ・上下の粒・落下する粒)
 //  - 描画ループは requestAnimationFrame で、ゲームの進行(engine.js)とは完全に分離している。
 // 粒は視覚表現。数十億個体を描かず、描く粒数には上限がある。縮尺を変えても実際の数値は変わらない。
+import { drawGlassFrame } from "./glassfx.js";
 const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 
 // ---------- 縮尺 ----------
@@ -137,17 +138,7 @@ export class SandGlass {
     const m = this.model, ctx = this.ctx; if (!m || !ctx) return;
     const g = m.g, sl = m.slots, c = this.rgb, s = m.spacing, gs = Math.max(1, s * (this.compact ? .72 : .8)), d = this.dpr;
     ctx.setTransform(d, 0, 0, d, 0, 0); ctx.clearRect(0, 0, this.W, this.H);
-    // ガラスの輪郭: 上下の部屋と、中央のくびれ
-    ctx.beginPath();
-    const N = 14; for (let i = 0; i <= N; i++) { const y = g.yTop + (g.yNeck - g.yTop) * i / N; const x = g.cx - g.halfTop(y); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    for (let i = 0; i <= N; i++) { const y = g.yNeck + (g.yBot - g.yNeck) * i / N; ctx.lineTo(g.cx - g.halfBot(y), y); }
-    ctx.lineTo(g.cx + g.halfBot(g.yBot), g.yBot);
-    for (let i = N; i >= 0; i--) { const y = g.yNeck + (g.yBot - g.yNeck) * i / N; ctx.lineTo(g.cx + g.halfBot(y), y); }
-    for (let i = N; i >= 0; i--) { const y = g.yTop + (g.yNeck - g.yTop) * i / N; ctx.lineTo(g.cx + g.halfTop(y), y); }
-    ctx.closePath(); ctx.fillStyle = `rgba(${c},.05)`; ctx.fill(); ctx.strokeStyle = `rgb(${c})`; ctx.lineWidth = this.compact ? 1 : 2; ctx.lineJoin = "round"; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(g.cx - g.hw - g.m * .5, g.yTop - 1); ctx.lineTo(g.cx + g.hw + g.m * .5, g.yTop - 1); ctx.moveTo(g.cx - g.hw - g.m * .5, g.yBot + 1); ctx.lineTo(g.cx + g.hw + g.m * .5, g.yBot + 1); ctx.lineWidth = this.compact ? 1.4 : 3; ctx.stroke();
-    // くびれの印
-    ctx.fillStyle = `rgb(${c})`; ctx.fillRect(g.cx - g.nh - 1.2, g.yNeck - .8, 1.6, 1.6); ctx.fillRect(g.cx + g.nh - .4, g.yNeck - .8, 1.6, 1.6);
+    drawGlassFrame(ctx, g, c, this.compact); // 輪郭は開始演出と同じ、点と数字(js/glassfx.js)
     // 上の粒: 塗りつぶし(いま生きている/稼働している)
     ctx.beginPath(); for (let i = 0; i < m.Nt; i++) ctx.rect(sl.top[2 * i] - gs / 2, sl.top[2 * i + 1] - gs / 2, gs, gs); ctx.fillStyle = `rgba(${c},1)`; ctx.fill();
     // 下の粒: 中空・薄い(これまでに死亡/停止した累計)
