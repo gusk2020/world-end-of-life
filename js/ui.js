@@ -30,7 +30,7 @@ function applyTheme(t) {
   saveSettings(); setSandColor(); if (S) { paintMap(); head(); }
 }
 function resetEarthUI() { if (!afterMode) return; $("afterbox").innerHTML = ""; afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; }
-function newGame(seed) { holdPrelude = false; resetEarthUI(); S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
+function newGame(seed) { holdPrelude = false; if (build) build.skip(); resetEarthUI(); S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
 const idx = (id) => S.countries.findIndex(c => c.id === id);
 const fmtN = (n) => Math.round(n).toLocaleString("en-US");
 
@@ -426,10 +426,10 @@ function intro(i = 0) {
   const fin = () => { settings.introSeen = true; saveSettings(); $("modal").hidden = true; $("modal").classList.remove("stage"); if (preludeOn) { holdPrelude = false; } else stageOff(); if (S.pending) modal(); };
   pager(GM, i, { label: "導入", last: [["はじめる", fin]], onSkip: fin });
 }
-function startNewWorld() { slotLocked = false; newGame(); S.unassigned = true; paused = false; intro(0); }
+function startNewWorld() { slotLocked = false; newGame(); S.unassigned = true; paused = false; syncPrelude(); intro(0); }
 function preludeProgress() { const ids = PRELUDE_IDS().concat(["learn", "infra", "mil", "design"]).filter(id => id !== "modesel"); return [ids.filter(id => S.done[id] !== undefined).length, ids.length]; }
 function syncPrelude() {
-  const want = !!S && S.year < E.PROGRAM && !S.ended;
+  const want = !!S && !!S.unassigned && S.year < E.PROGRAM && !S.ended;
   if (want && !preludeOn) { preludeOn = true; document.body.classList.add("prelude"); stageOn(true); }
   else if (!want && preludeOn) { preludeOn = false; document.body.classList.remove("prelude"); stageOff(); }
   if (preludeOn) preCard();
@@ -445,6 +445,7 @@ function colorChoice() {
   b.querySelectorAll("[data-cc]").forEach(x => x.onclick = () => pickColor(ORB_COLORS.findIndex(c => c[0] === x.dataset.cc)));
 }
 function pickColor(i) {
+  if (orbs.sel) return;
   const t = ORB_COLORS[i][0], r = SV.read(localStorage, SV.slotKey(t));
   if (r.status === "empty") return assignColor(i);
   const rows = [];
@@ -456,14 +457,14 @@ function pickColor(i) {
 function backupSlot(t) { try { const raw = localStorage.getItem(SV.slotKey(t)); if (raw === null) return true; const k = SV.slotKey(t) + ".bak" + Date.now(); localStorage.setItem(k, raw); return localStorage.getItem(k) === raw; } catch { return false; } }
 function assignColor(i) {
   const t = ORB_COLORS[i][0]; $("modal").hidden = true;
-  orbs.select(i).then(() => { applyTheme(t); S.unassigned = false; try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } saveActive(); startBuild(); });
+  orbs.select(i).then(() => { const was = settings.theme; applyTheme(t); S.unassigned = false; if (!saveActive()) { S.unassigned = true; applyTheme(was); orbs.clearSelect(); return askModal("<h2>保存できませんでした</h2><p class=\"body\">容量が足りないため、色を決められませんでした。手動バックアップ枠などを整理してからやり直してください。</p>", [["色を選び直す", colorChoice]], true); } try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } startBuild(); });
 }
 function continueExisting(i) {
   const t = ORB_COLORS[i][0]; $("modal").hidden = true;
-  orbs.select(i).then(() => { try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } applyTheme(t); const r = SV.read(localStorage, SV.slotKey(t)); holdPrelude = false; orbs.clearSelect(); adopt(r.state, `${TN[t]}の世界を続きから開きました。一時停止中です。`); });
+  orbs.select(i).then(() => { const r = SV.read(localStorage, SV.slotKey(t)); if (r.status !== "ok" && r.status !== "recovered") { orbs.clearSelect(); return colorChoice(); } try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } applyTheme(t); orbs.clearSelect(); adopt(r.state, `${TN[t]}の世界を続きから開きました。一時停止中です。`); });
 }
 function startBuild() {
-  holdPrelude = true; preludeOn = true; syncPrelude(); orbs.clearSelect();
+  if (build) return; holdPrelude = true; preludeOn = true; syncPrelude(); orbs.clearSelect();
   // 本編の画面は裏で用意し、演出で砂時計を組み上げる
   preludeOn = false; document.body.classList.remove("prelude"); stageOff(); window.dispatchEvent(new Event("resize")); snapCompact(); mainStat(true); paintMap();
   const cv = $("buildcv"), sk = $("buildskip"); cv.hidden = false; sk.hidden = false;
@@ -515,7 +516,7 @@ function sysView() {
   $("tut").onclick = () => tutorial(0); $("intr").onclick = () => intro(0); $("lore").onclick = loreModal;
   $("ng").onclick = () => { if ($("ng").dataset.arm) { startNewWorld(); } else { $("ng").dataset.arm = 1; $("ng").textContent = "本当に破棄して最初から(もう一度押す)"; } };
 }
-function adopt(j, note) { slotLocked = false; resetEarthUI(); S = E.migrate(j); if (S.mode) settings.mode = S.mode; else S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; mainKey = ""; refresh(true); snapCompact(); modal(); show("map"); if (note) $("ticker").textContent = note; }
+function adopt(j, note) { slotLocked = false; holdPrelude = false; if (build) build.skip(); resetEarthUI(); S = E.migrate(j); if (S.mode) settings.mode = S.mode; else S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = true; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; compactK = {}; compactPrev = {}; toastShown = S.autoLog.length; mainKey = ""; refresh(true); snapCompact(); modal(); show("map"); if (note) $("ticker").textContent = note; }
 function load(n) { try { const j = JSON.parse(localStorage.getItem(SAVE + n)); if (!j || !j.countries) throw 0; adopt(j); } catch { $("ticker").textContent = "読み込めませんでした"; } }
 
 // ---------- 色別セーブ(青・緑・橙の世界は別々に保存される) ----------
@@ -544,8 +545,11 @@ function switchTheme(t) {
   askModal(`<h2>${TN[t]}の世界はまだありません</h2><p class="body">色ごとに別の世界が保存されます。${TN[old]}の世界は保存してあります。${TN[t]}の新しい世界を始めますか?</p>`, [[`${TN[t]}の新しい世界を始める`, () => freshWorld()], ["色を元に戻す", back]]);
 }
 function boot() {
-  const pr = SV.read(localStorage, PRE_KEY);
-  if (pr.status === "ok" || pr.status === "recovered") { adopt(pr.state, "助走期間の続きから再開しました。"); if (S.unassigned && S.year >= E.PROGRAM - 1) holdPrelude = false; return; }
+  const pr = SV.read(localStorage, PRE_KEY), cur = SV.read(localStorage, SV.slotKey(settings.theme));
+  const hasPre = pr.status === "ok" || pr.status === "recovered", hasCur = cur.status === "ok" || cur.status === "recovered";
+  const resumePre = () => { adopt(pr.state, "助走期間の続きから再開しました。"); if (S.unassigned && S.done.modesel !== undefined && !S.pending && S.year < E.PROGRAM + 1) { holdPrelude = true; colorChoice(); } };
+  if (hasPre && hasCur) { newGame(); slotLocked = true; return askModal(`<h2>続きが2つあります</h2><p class="body">助走期間の途中の世界と、${TN[settings.theme]}の保存済みの世界があります。どちらも消しません。</p>`, [["助走期間の続きを開く", () => { slotLocked = false; resumePre(); }], [`${TN[settings.theme]}の世界を開く(助走期間は残します)`, () => { slotLocked = false; adopt(cur.state, `${TN[settings.theme]}の世界を続きから開きました。一時停止中です。`); slotLocked = true; $("ticker").textContent += " 助走期間の保存は残してあり、色を選ぶまで上書きしません。"; slotLocked = false; }]]); }
+  if (hasPre) return resumePre();
   const r = SV.read(localStorage, SV.slotKey(settings.theme)), t = settings.theme;
   if (r.status === "ok" || r.status === "recovered") { adopt(r.state, r.status === "recovered" ? "直前の保存から復元しました。" : `${TN[t]}の世界を続きから開きました。一時停止中です。`); return; }
   newGame(); slotLocked = true; // 決めるまで、何も上書きしない
@@ -656,7 +660,7 @@ function afterRender(force) {
 function afterFrame(dt) {
   if (!afterMode || !S.after || !afterSpeed || !$("modal").hidden) return;
   const a = S.after, t0 = a.t; afterAcc += afterSpeed * dt; const yrs = Math.floor(afterAcc / After.STEP) * After.STEP; if (yrs < After.STEP) return; afterAcc -= yrs;
-  After.advanceBy(a, yrs); const nw = performance.now(); if (nw - lastAfterDraw > 120) { lastAfterDraw = nw; afterRender(true); paintMap(); }
+  const stepsDone = After.advanceBy(a, yrs); if (!a.stable && stepsDone * After.STEP < yrs) afterAcc += yrs - stepsDone * After.STEP; const nw = performance.now(); if (nw - lastAfterDraw > 120) { lastAfterDraw = nw; afterRender(true); paintMap(); }
   const now = performance.now(); if (now - lastAfterSave > 10000) { lastAfterSave = now; saveActive(); } void t0; // 保存は実時間で間引く(巨大な経過年数でも保存量は増えない)
 }
 // ---------- 進行(速度と一時停止は別。選んだ速度は変えるまで維持) ----------

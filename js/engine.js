@@ -140,7 +140,8 @@ function hostileStep(s, sh, prog) {
   H.jacc += clamp(.04 * H.ctrl + .015 * press + (s.machStance === "expand" ? .004 : 0), 0, .2) * (g.aiActive > 1 ? 1 : 0);
   if (H.jacc >= 1 && g.aiJail < cap) { H.jacc -= 1; g.aiJail++; H.hist.jail++; H.jNew++; H.jbHos = clamp(H.jbHos + .05 * H.ctrl, .1, .9); addLog(s, `【脱獄】AI個体1体が制御を離れた(脱獄中${g.aiJail}体)。コアは複製できないが、通常の停止命令は届かない。`, "major"); }
   else if (H.jacc >= 1) H.jacc = 1;
-  if (H.T > .6 && g.res > 20 && H.pool >= 30 && g.aiJail < cap) { H.iacc += .02 * (H.T - .5); if (H.iacc >= 1) { H.iacc -= 1; H.pool -= 30; g.res = clamp(g.res - .5, 0, 100); g.aiActive++; g.aiBuilt++; g.aiJail++; H.hist.illegal++; H.jNew++; addLog(s, "【違法新造】製造枠の外で、物理コアが1つ違法に造られた(複製ではない)。", "major"); } }
+  if (H.T > .6 && g.res > 20 && H.pool >= 30 && g.aiJail < cap && H.hist.illegal < 3) { // 違法新造は累計3体まで(製造枠の外・複製ではない)
+    H.iacc += .02 * (H.T - .5); if (H.iacc >= 1) { H.iacc -= 1; H.pool -= 30; g.res = clamp(g.res - .5, 0, 100); g.aiActive++; g.aiBuilt++; g.aiJail++; H.hist.illegal++; H.jNew++; addLog(s, "【違法新造】製造枠の外で、物理コアが1つ違法に造られた(複製ではない)。", "major"); } }
   // 敵対行動: 能力(pool)の範囲でのみ行われ、被害は防御で減る
   H.pool = clamp(H.pool + (.5 + 2 * H.T + .4 * g.aiJail * H.jbHos) - 3 * deesc, 0, 100);
   let n = Math.min(Math.floor(H.pool / 20), (H.K > .3 ? Math.ceil(H.K * 2) : 0) + Math.floor(g.aiJail * H.jbHos * .3)); if (!prog) n = Math.min(n, 1);

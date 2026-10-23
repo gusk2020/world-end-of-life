@@ -98,7 +98,7 @@ export function stepAfter(a) {
   return true;
 }
 const snapshot = (a) => [mean(a.veg), mean(a.city), mean(a.pl), a.bio.birds + a.bio.reptiles + a.bio.insects + a.bio.plants, a.mach, a.human, a.her];
-function settled(p, a) { const q = snapshot(a); if (a.t < 1000) return false; if (a.mach > .01 || (a.succ === "alien" && a.alienAt === null) || (a.succ === "system" && !a.flags.audit) || (a.copy && !a.flags.wake)) return false; for (let k = 0; k < 4; k++) if (Math.abs(q[k] - p[k]) > 2e-3) return false; if (a.human > 0 && Math.abs(q[5] - p[5]) > Math.max(1, a.human * 1e-4)) return false; return true; }
+function settled(p, a) { const q = snapshot(a); if (a.t < 1000 || AFTER_EVENTS.some(ev => !a.flags["e_" + ev.id])) return false; if (a.mach > .01 || (a.succ === "alien" && a.alienAt === null) || (a.succ === "system" && !a.flags.audit) || (a.copy && !a.flags.wake)) return false; for (let k = 0; k < 4; k++) if (Math.abs(q[k] - p[k]) > 2e-3) { a.quiet = 0; return false; } if (a.human > 0 && Math.abs(q[5] - p[5]) > Math.max(1, a.human * 1e-4)) { a.quiet = 0; return false; } a.quiet = (a.quiet || 0) + 1; return a.quiet >= 20; }
 // 数値の健全性: NaN・Infinityを許さず、範囲に収める
 function sanitize(a) { for (const k of ["city", "veg", "pl", "ind"]) for (let i = 0; i < a[k].length; i++) a[k][i] = clamp(Number.isFinite(a[k][i]) ? a[k][i] : 0, 0, 100); for (const k in a.bio) a.bio[k] = clamp(a.bio[k], 0, 100); a.mach = clamp(a.mach, 0, 1); a.her = clamp(a.her, 0, 100); a.scar = clamp(a.scar, 0, 100); a.human = Number.isFinite(a.human) ? Math.max(0, Math.min(a.human, 5e9)) : 0; }
 // 年表は上限つき(最初の1行と最近の出来事だけを残す)

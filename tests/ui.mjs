@@ -159,7 +159,7 @@ await p.click("#gclose");
 console.log("\n■ テーマ切替(青・緑・橙)と独立保存");
 const col = () => p.evaluate(() => [getComputedStyle(document.documentElement).getPropertyValue("--rgb").trim(), getComputedStyle(document.getElementById("date")).color, document.getElementById("svg").querySelector("path").style.fill]);
 const seen = {};
-const sw = async (th) => { await p.click(`#themes [data-th=${th}]`); await p.waitForTimeout(120); if (await p.locator("#modal:not([hidden]) [data-ab='0']").count()) { await p.click("[data-ab='0']"); await p.waitForTimeout(150); } for (let i = 0; i < 14 && await p.locator("#modal:not([hidden]) #pgnext").count(); i++) await p.click("#pgnext"); await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (g.preludeOn) g.skipPrelude(); if (!g.paused) g.togglePause(); }); };
+const sw = async (th) => { await p.click(`#themes [data-th=${th}]`); await p.waitForTimeout(120); if (await p.locator("#modal:not([hidden]) [data-ab='0']").count()) { await p.click("[data-ab='0']"); await p.waitForTimeout(150); } for (let i = 0; i < 14 && await p.locator("#modal:not([hidden]) #pgnext").count(); i++) await p.click("#pgnext"); await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (g.S.year < 2100) g.skipPrelude(); if (!g.paused) g.togglePause(); }); };
 for (const [th, rgb] of [["green", "51,255,119"], ["orange", "255,160,48"], ["blue", "77,166,255"]]) {
   await sw(th);
   let [v, text, fill] = await col(); text = text.replace(/ /g, ""); fill = fill.replace(/ /g, ""); seen[th] = text;
