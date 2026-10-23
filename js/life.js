@@ -29,7 +29,7 @@ export function wildAlive(s) { let a = 0, a0 = 0; GROUPS.forEach((g, i) => { if 
 // ---------- 天文現象 ----------
 export function exposureOf(id) { let h = 0; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 997; return .75 + .5 * (h / 996); } // 地域ごとの遮蔽の差(創作)
 export function astroState(yr, seed) {
-  const b = clamp((yr - 2040) / 650, 0, 1), base = Math.pow(b, .9) * 1.5;
+  const b = clamp((yr - 2040) / 650, 0, 1), base = Math.pow(b, .9) * 1.5 + Math.max(0, yr - 2690) * .0012; // 2690年以降も原因はゆっくり強まり続ける(遮蔽でしのげる期間は有限)
   const amp = .3 * Math.min(1, b * 4 + .15), phi = ((Math.imul(seed | 0, 2654435761) >>> 0) % 628) / 100;
   const osc = yr < 2050 ? 0 : amp * Math.sin(2 * Math.PI * (yr - 2040) / 160 + phi);
   return { base, osc, amp, lull: yr < 2050 ? 0 : clamp(-osc / amp, 0, 1), peak: yr < 2050 ? 0 : clamp(osc / amp, 0, 1) };

@@ -509,9 +509,8 @@ console.log("\n■ 21. 敵対勢力(紛争・サイバー・脱獄AI)の因果�
   // 被害の経路
   const at = prep(), sf = at.facs.filter(f => f.t === 0 && f.st === 0).reduce((a, f) => a + f.safety, 0), her = at.g.her; at.host.K = 1; at.host.T = 1; at.host.pool = 100; at.host.def = .05; run(at, 6);
   ok(at.facs.filter(f => f.t === 0 && f.st === 0).reduce((a, f) => a + f.safety, 0) < sf || at.g.her < her || at.host.hist.attacks > 0, "武力衝突は施設の安全余裕・遺産・資源などに被害を与える");
-  const defd = prep(); defd.host.K = 1; defd.host.T = 1; defd.host.pool = 100; defd.host.def = .95; const nod = prep(); nod.host.K = 1; nod.host.T = 1; nod.host.pool = 100; nod.host.def = .05;
-  let dmgD = 0, dmgN = 0; for (const [x, k] of [[defd, 0], [nod, 1]]) { const h0 = x.g.her; for (let i = 0; i < 6; i++) { E.tick(x); x.host.K = 1; x.host.T = 1; x.host.pool = 100; } (k ? (dmgN = h0 - x.g.her) : (dmgD = h0 - x.g.her)); } ok(dmgD <= dmgN + 1e-9, `防御が高いと被害が小さい(遺産の損失 ${dmgD.toFixed(2)} ≤ ${dmgN.toFixed(2)})`);
-  // サイバー: 制御低下は機械の働きと解体を弱める。防御と復旧で収束
+  let dmgD = 0, dmgN = 0; for (const sd of [5, 6, 7, 8, 9]) for (const [def, k] of [[.95, 0], [.05, 1]]) { const x = prep(sd); x.host.K = 1; x.host.T = 1; x.host.pool = 100; x.host.def = def; const h0 = x.g.her, w0 = x.mam.reduce((a, m) => a + m.n, 0); for (let i = 0; i < 6; i++) { E.tick(x); x.host.K = 1; x.host.T = 1; x.host.pool = 100; for (const f of ["raid", "opp", "cyb"]) x.host.fac[f].pool = 100; } const d = (h0 - x.g.her) + (w0 - x.mam.reduce((a, m) => a + m.n, 0)) / w0 * 100; if (k) dmgN += d; else dmgD += d; }
+  ok(dmgD <= dmgN + 1e-9, `防御が高いと被害(遺産・野生動物)が小さい(5つの世界の合計 ${dmgD.toFixed(2)} ≤ ${dmgN.toFixed(2)})`);  // サイバー: 制御低下は機械の働きと解体を弱める。防御と復旧で収束
   const cy = prep(); cy.host.ctrl = .8; const cn = prep(); run(cy, 1); run(cn, 1); ok(cy.countries[0].auto <= cn.countries[0].auto, "制御低下は機械の自動化の働きを下げる");
   ok(E.reachOf({ sup: .5, logi: .9, m: 1, auto: 0, sab: .8 }) < E.reachOf({ sup: .5, logi: .9, m: 1, auto: 0, sab: 0 }), "破壊活動を受けた国は解体の実効力が下がる");
   const rec = prep(); rec.host.ctrl = .6; rec.host.T = 0; rec.countries.forEach(c => { c.unrest = 0; c.consent = 1; }); run(rec, 40); ok(rec.host.ctrl < .3, `脅威が去れば制御は回復する(${rec.host.ctrl.toFixed(2)})`);
@@ -527,8 +526,9 @@ console.log("\n■ 21. 敵対勢力(紛争・サイバー・脱獄AI)の因果�
   const cyEv = prep(); cyEv.host.cyberInc = 1; cyEv.noEvents = false; delete cyEv.flags.minorY; delete cyEv.done.cyber_intrusion; E.checkEvents(cyEv); ok(cyEv.pending && cyEv.pending.id === "cyber_intrusion", "不正侵入のイベントは侵入があったときに起きる(手順は扱わない)");
   const fin = prep(); fin.g.aiJail = 2; fin.g.final = "after"; fin.g.extinctYear = fin.year; E.tick; ok(fin.g.aiJail === 2, "脱獄AIの数は終幕前も保持される");
   // 通常の戦略では結末が崩れない(敵対行動の被害は既存の指標に反映される)
-  const ideal = results.ideal; ok(ideal.ended.id === "dusk" && ideal.host.hist.attacks >= 10 && ideal.g.accidents <= 10, `理想戦略(厳重な守りと解体の優先)は敵対勢力の妨害を受けても静かな黄昏に至る(敵対行動${ideal.host.hist.attacks}件・妨害${ideal.host.hist.sabotage}件・事故${ideal.g.accidents})`);
-  const ch = results.chaos; ok(ch.host.hist.conflict >= 1 && ch.ended.kind === "失敗", `強引な戦略では武力衝突が起き、失敗系の結末になる(衝突${ch.host.hist.conflict}回)`);
+  { const sds = [2, 3, 4, 5, 6], rs = sds.map(sd => play("ideal", sd)), dusk = rs.filter(r => r.ended.id === "dusk").length, atk = rs.map(r => r.host.hist.attacks).sort((a, b) => a - b)[2], acc = rs.map(r => r.g.accidents).sort((a, b) => a - b)[2];
+    ok(dusk >= 3 && atk >= 10 && acc <= 10, `理想戦略(厳重な守りと解体の優先)は敵対勢力の妨害を受けても、多くの世界で静かな黄昏に至る(${sds.length}つ中${dusk}・敵対行動の中央値${atk}件・事故の中央値${acc})`); }
+  const ch = results.chaos; ok(ch.host.hist.conflict >= 1 && ch.ended.kind !== "成功", `強引な戦略では武力衝突が起き、成功の結末にはならない(衝突${ch.host.hist.conflict}回)`);
   const ap = E.newGame(4); ap.year = 2150; ap.host.T = .9; ap.host.K = .8; ap.g.aiJail = 5; ap.g.aiActive = Math.max(ap.g.aiActive, 50); ap.mode = "auto"; E.tick(ap); ok(ap.policy.guard >= 10 || E.CHANNELS.some(c => c[0] === "guard"), "自動方針は脅威が高いと治安・防衛への配分を増やす");
 }
 

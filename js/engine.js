@@ -2,14 +2,16 @@
 import { COUNTRY_DEFS, FACTYPES } from "./data.js";
 import { SITES, initSites, stepSites, siteScore, siteSummary, setSite, applySitePolicy, undecided } from "./heritage.js";
 import { cityNarratives, decadeNarrative, cityOf, era } from "./narrative.js";
+import { W9_DEFAULT, stepW9, channelOpen, askEvents, retroUnlock, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance } from "./world9.js";
 import { GROUPS, WILDLAND, initMammals, mammalN0, mammalTotals, wildAlive, exposureOf, stepAstro, coreFailRate, stepMammals, ecoFunction, mammalScore } from "./life.js";
 export { GROUPS, mammalTotals, mammalScore, wildAlive, coreFailRate, ecoFunction };
+export { W9_DEFAULT, channelOpen, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance };
 export { SITES, setSite, applySitePolicy, undecided, siteScore, siteSummary, era, cityOf };
 
 export const START_YEAR = 2020, DISCOVERY = 2050, CERTAIN = 2080, PROGRAM = 2100;
 export const CHANNELS = [
   ["research", "生存研究"], ["care", "終活支援"], ["decom", "施設停止・解体"],
-  ["stop", "機械停止準備"], ["eco", "環境修復"], ["heritage", "文明遺産保存"], ["wild", "大型哺乳類の保護"], ["guard", "治安・防衛・サイバー防御"],
+  ["stop", "機械停止準備"], ["eco", "環境修復"], ["heritage", "文明遺産保存"], ["wild", "大型哺乳類の保護"], ["guard", "治安・防衛・サイバー防御"], ["disarm", "軍縮・民生転換"], ["consol", "居住域・交通網の集約"],
 ];
 export const PRESETS = {
   balanced: { research: 15, care: 25, decom: 25, stop: 10, eco: 15, heritage: 10, wild: 8 },
@@ -33,11 +35,11 @@ function rnd(s) { // mulberry32。状態をs.rngに保持
 export function newGame(seed = 1) {
   const s = {
     v: 3, seed, rng: seed | 0, year: START_YEAR, countries: [], facs: [], log: [], chosen: [],
-    host: hostInit(), hostPolicy: { ...HOST_POLICY_DEFAULT }, pending: null, done: {}, flags: {}, ended: null, hist: [], post: 0, mode: "manual", wildStance: "balanced", decomOrder: "hazard", autoLog: [], series: { h: [], a: [], m: [] }, mam: initMammals(),
+    host: hostInit(), hostPolicy: { ...HOST_POLICY_DEFAULT }, w9: W9_DEFAULT(), pending: null, done: {}, flags: {}, ended: null, hist: [], post: 0, mode: "manual", wildStance: "balanced", decomOrder: "hazard", autoLog: [], series: { h: [], a: [], m: [] }, mam: initMammals(),
     ai: { cap: 10, insight: 10, align: 20, trust: 55, sp: 0.1, focus: "world" },
     g: { pl: 40, bio: 78, scar: 0, res: 100, her: 100, rsr: 0, ark: 0, mach: 5, stopReady: 0, gdp0: 0, P0: 0,
       arch: 0, accidents: 0, wars: 0, sov: 1, overrides: 0, hpAcc: 0, hpW: 0, peak: 0, unrestAcc: 0, unrestN: 0, lastC: null, lastYear: null,
-      astro: 0, lull: 0, peak: 0, surge: 0, coreFail: 0, aiFailed: 0, mamWildExt: null, wAcc: 0, wW: 0, ecoSum: 0, ecoMean: 0, aiJail: 0, popHist: [], rate: {}, popEv: { flat: 0, grow: 0 }, hBorn: 0, hDead: 0, aiActive: 0, aiBuilt: 0, aiStopped: 0, sitesBio: 0, hMod: 0, survivors: 0, arkYear: null, fossil: 0, final: null, machRemain: 0, aiRemain: false, hidden: false, flow: 0 },
+      astro: 0, lull: 0, peak: 0, surge: 0, coreFail: 0, aiFailed: 0, mamWildExt: null, wAcc: 0, wW: 0, ecoSum: 0, ecoMean: 0, aiJail: 0, popHist: [], rate: {}, popEv: { flat: 0, grow: 0 }, hBorn: 0, hDead: 0, aiActive: 0, aiBuilt: 0, aiStopped: 0, dis: 0, disAgr: 1, cons: 0, shel: 0, med: 0, medEff: 0, land: 0, accept: 0, milLoad: 1, transLoad: 1, sitesBio: 0, hMod: 0, survivors: 0, arkYear: null, fossil: 0, final: null, machRemain: 0, aiRemain: false, hidden: false, flow: 0 },
     policy: { ...PRESETS.balanced }, sovMode: "consent", machStance: "std",
   };
   let fid = 0;
@@ -97,6 +99,8 @@ export function migrate(s) { // 旧セーブ(v1)の読み込み
   if (!g.popHist) g.popHist = []; if (!g.popEv) g.popEv = { flat: 0, grow: 0 };
   if (s.policy.wild === undefined) s.policy.wild = 0;
   for (const c of s.countries) { if (c.hope === undefined) c.hope = 1.05; if (c.ex === undefined) c.ex = exposureOf(c.id); }
+  if (!s.w9) { s.w9 = W9_DEFAULT(); retroUnlock(s); } else s.w9 = { ...W9_DEFAULT(), ...s.w9, win: { ...W9_DEFAULT().win, ...(s.w9.win || {}) }, hist: { ...W9_DEFAULT().hist, ...(s.w9.hist || {}) } };
+  for (const [k, v] of Object.entries({ dis: 0, disAgr: 1, cons: 0, shel: 0, med: 0, medEff: 0, land: 0, accept: 0, milLoad: 1, transLoad: 1 })) if (g[k] === undefined) g[k] = v;
   s.holdAuto = false; // 観察中に保存された場合も、ロード時は観察を破棄する
   s.v = 3; return s;
 }
@@ -201,8 +205,8 @@ function stepYear(s) {
   const g = s.g, yr = s.year, ai = s.ai, prog = programActive(s);
   const P = total(s), pr = P / g.P0;
   const flow = g.flow = flowOf(s);
-  const pol = s.policy, psum = Math.max(1, Object.values(pol).reduce((a, b) => a + (b || 0), 0));
-  const sh = {}; for (const [k] of CHANNELS) sh[k] = prog ? (pol[k] || 0) / psum : 0;
+  const pol = s.policy, psum = Math.max(1, CHANNELS.reduce((a, [k]) => a + (channelOpen(s, k) ? (pol[k] || 0) : 0), 0));
+  const sh = {}; for (const [k] of CHANNELS) sh[k] = prog && channelOpen(s, k) ? (pol[k] || 0) / psum : 0;
   const wl = WILDLAND[s.wildStance || "balanced"];
   const hum = clamp(1 - Math.max(0, (g.P0 * .6 - P)) / (g.P0 * .6), 0, 1);
 
@@ -230,8 +234,8 @@ function stepYear(s) {
     if (Pc <= 0) c.extinct = true;
     c.auto = clamp(g.mach / 100 * .9 * clamp(c.def.dev * 1.4, .2, 1), 0, .9) * (1 - g.coreFail) * (1 - .6 * (s.host ? s.host.ctrl : 0));
     const lab = c.a * .75 * (c.extinct ? 0 : 1) + c.auto * c.L0;
-    const need = run[ci].need;
-    c.m = clamp(lab / need, 0, 1);
+    const need = run[ci].need * (1 - .15 * (g.cons || 0) / 100); // 交通網と居住域の集約で、維持に要る人手が減る
+    c.m = clamp(lab / need, 0, 1) * (1 - .25 * s.w9.apathy);
     const nS = Math.min(.5, c.def.nuc * .012), dS = Math.min(.4, c.def.dam * .01);
     const sup = (1 - nS - dS) * (1 - fos) + nS * FR(ci, 0) + dS * FR(ci, 2);
     const dem = Math.max(.05, (Pc / c.P0) * (.6 + .4 * c.ind));
@@ -265,18 +269,18 @@ function stepYear(s) {
     // 解体の実効力: 国ごとの電力・物流・技術者(維持率)・機械の自動化に左右され、国家間の不安は配分そのものを削る
     const war = s.countries.reduce((p, c) => p + c.unrest * cpop(c), 0) / Math.max(1, P);
     s.reach = s.countries.map(reachOf);
-    s.coop = 1 - .4 * war;
+    s.coop = (1 - .4 * war) * (1 - s.w9.indiv);
     const hpo = s.hostPolicy || HOST_POLICY_DEFAULT, slow = (hpo.diplomacy === "dialogue" ? .94 : 1) * (1 - .3 * (s.host.str ? s.host.str.opp : 0)) * (s.host.slow > 0 ? .95 : 1); if (s.host.slow > 0) s.host.slow--;
-    let budget = flow * sh.decom * .8 * (.7 + .3 * ai.cap / 100) * s.coop * slow; // 反対派の妨害・対話の時間・事件後の停滞が、解体の進みを遅らせる
+    let budget = flow * (sh.decom + .6 * sh.disarm) * .8 * (.7 + .3 * ai.cap / 100) * s.coop * slow; // 反対派の妨害・対話の時間・事件後の停滞が、解体の進みを遅らせる
     if (budget > 0) {
       // 優先度の高い順に予算が尽きるまで処理する。全件の整列はせず、ヒープで必要な分だけ取り出す(同点は施設の並び順=安定整列と同じ)
       const ks = [], fs = [];
       for (const fa of s.facs) {
         if (fa.st > 1 || fa.rogue) continue;
         const c = s.countries[fa.c]; if (c.extinct || (c.pauseUntil || 0) > yr) continue;
-        const need = fa.t === 3 ? .75 : fa.t === 0 ? .6 : fa.t === 4 ? .65 : .45;
+        const need = fa.t === 3 ? (sh.disarm > 0 ? .5 : .75) : fa.t === 0 ? .6 : fa.t === 4 ? .65 : .45; // 軍縮の協定があれば、軍事施設の停止への合意は得やすい
         if (s.sovMode === "consent" && c.consent < need) continue;
-        ks.push(FACTYPES[fa.t].haz * (1.2 - fa.safety) + (fa.st === 1 ? 1 : 0) + decomBias(s.decomOrder, fa.t) + ((c.sab || 0) > .3 ? (rnd(s) - .5) * c.sab * 1.5 : 0)); fs.push(fa); // 妨害を受けた国では停止の順序が乱れる
+        ks.push(FACTYPES[fa.t].haz * (1.2 - fa.safety) + (fa.st === 1 ? 1 : 0) + decomBias(s.decomOrder, fa.t) + (fa.t === 3 && sh.disarm > 0 ? 2 : 0) + ((c.sab || 0) > .3 ? (rnd(s) - .5) * c.sab * 1.5 : 0)); fs.push(fa); // 妨害を受けた国では停止の順序が乱れる
       }
       const heap = ks.map((_, i) => i), before = (x, y) => ks[x] > ks[y] || (ks[x] === ks[y] && x < y);
       const down = (i, n) => { for (;;) { let m = i; const l = 2 * i + 1, r = l + 1; if (l < n && before(heap[l], heap[m])) m = l; if (r < n && before(heap[r], heap[m])) m = r; if (m === i) return; const t = heap[i]; heap[i] = heap[m]; heap[m] = t; i = m; } };
@@ -286,7 +290,7 @@ function stepYear(s) {
         const fa = fs[heap[0]]; heap[0] = heap[--hn]; down(0, hn);
         const T = FACTYPES[fa.t], c = s.countries[fa.c];
         const rc = s.reach[fa.c], give = Math.min(budget * rc, T.cost - fa.prog); fa.prog += give; budget -= give / rc; fa.st = 1;
-        g.res = clamp(g.res - give * .004, 0, 100); // 解体の資源消費(完了時に部分的に回収)
+        g.res = clamp(g.res - give * .004 * (1 - .35 * (g.dis || 0) / 100), 0, 100); // 解体の資源消費(完了時に部分的に回収)
         if (s.sovMode === "override" && c.consent < (fa.t === 3 ? .75 : fa.t === 0 ? .6 : .45)) {
           g.sov = clamp(g.sov - .0015 * give, 0, 1); c.consent = clamp(c.consent - .002 * give, 0, 1); c.unrest = clamp(c.unrest + .003 * give, 0, 1); g.overrides += give;
         }
@@ -321,14 +325,16 @@ function stepYear(s) {
   const eco = prog ? flow * sh.eco : 0;
   g.pl = clamp(g.pl + 2.0 * emission - .03 * g.pl * (1 + eco / 40) - eco * .01, 0, 100);
   g.scar = clamp(g.scar * .997, 0, 100);
-  const tgt = clamp(100 - g.pl - g.scar + g.sitesBio - 8 * (1 - ecoFunction(s)), 0, 100) * (yr < 2100 ? 1 - (yr - 2020) / 200 * .5 * (1 - 0) : 1);
+  const tgt = clamp(100 - g.pl - g.scar + g.sitesBio + 6 * (g.cons || 0) / 100 - 8 * (1 - ecoFunction(s)), 0, 100) * (yr < 2100 ? 1 - (yr - 2020) / 200 * .5 * (1 - 0) : 1);
   g.bio += g.bio < tgt ? Math.min(tgt - g.bio, .5 + eco * .03) : -Math.min(g.bio - tgt, 4);
-  g.res = clamp(g.res - .1 * (gdpSum / g.gdp0) * (1 - g.res / 130), 0, 100);
+  g.res = clamp(g.res - (.035 + .045 * (g.milLoad ?? 1) + .02 * (g.transLoad ?? 1)) * (gdpSum / g.gdp0) * (1 - g.res / 130), 0, 100); // 消費の内訳: 基礎・軍事・輸送(軍縮と集約で後ろの二つが減る)
   hostileStep(s, sh, prog);
+  stepW9(s, sh, flow);
+  if (g.med > 0) g.res = clamp(g.res - .02 * g.med * (P > 0 ? s.countries.reduce((a, c) => a + c.o, 0) / P : 0) * (1 - .6 * (g.medEff || 0)), 0, 100); // 長寿の費用: 介護と医療
   g.res = clamp(g.res - .0004 * g.mach, 0, 100); // 機械の増産は短期には資源を使う(長期には解体の自動化で返る)
   for (const c of s.countries) warLoad += c.unrest * cpop(c) / Math.max(1, P);
   const hMaint = clamp(.3 + .7 * hum, 0, 1);
-  g.her = clamp(g.her - g.her * (.0015 + .015 * warLoad) * (1 - hMaint * .6) * (prog ? .6 : 1) * (1 - g.arch / 100 * .9), 0, 100);
+  g.her = clamp(g.her - g.her * (.0015 + .015 * warLoad) * (1 - hMaint * .6) * (prog ? .6 : 1) * (1 - g.arch / 100 * .9) * (1 + .5 * (g.cons || 0) / 100), 0, 100);
 
   // 国ごとの人口・心理
   let rawAware = 0; if (yr >= DISCOVERY) rawAware = yr >= CERTAIN ? 1 : .35 + .65 * (yr - DISCOVERY) / (CERTAIN - DISCOVERY);
@@ -342,7 +348,7 @@ function stepYear(s) {
     const stab = clamp(c.def.dev * .5 + c.logi * .5, 0, 1);
     const satis = Math.min(1, c.en) * (.5 + .5 * c.logi);
     c.health = clamp(c.health + ((.3 + .5 * c.def.dev) * .6 + .25 * satis + .15 * care * (prog ? 1 : .3) - c.health) * .1, .1, 1);
-    const tgtH = clamp(.30 + .25 * satis + .2 * (1 - c.unrest) + .15 * c.health + .1 * g.sov + .1 * (ai.trust / 100) - .35 * c.aware * (1 - care * .85) + g.hMod - .12 * wl * Math.max(0, pr - .35), .03, .95);
+    const tgtH = clamp(.30 + .25 * satis + .2 * (1 - c.unrest) + .15 * c.health + .08 * (g.med || 0) - .02 * (g.cons || 0) / 100 * (1 - (g.accept || 0)) + .1 * g.sov + .1 * (ai.trust / 100) - .35 * c.aware * (1 - care * .85) + g.hMod - .12 * wl * Math.max(0, pr - .35), .03, .95);
     c.happy += (tgtH - c.happy) * .2;
     c.unrest = clamp(c.unrest + .06 * (.5 - c.happy) + .02 * (c.aware > .5 && !prog ? c.aware - .5 : 0) - .01 * ai.align / 100 * .5, 0, 1);
     const ctgt = clamp(.15 + .5 * c.aware * (prog ? 1 : .2) + .25 * ai.trust / 100 + .1 * g.sov - .25 * c.unrest, 0, 1);
@@ -351,16 +357,16 @@ function stepYear(s) {
     // 出生率: 「希望」が決める。希望は絶滅の認識で下がり、静穏期・幸福・終活支援・資源で戻る(原因と結果で人口が動く)
     const tfT = 1.95 + .5 * (1 - c.def.dev);
     c.tfr += (tfT - c.tfr) * .02;
-    const ex = c.ex ?? (c.ex = exposureOf(c.id)), resil = clamp(.5 * c.def.dev + .3 * c.logi + .2 * (1 - c.unrest), 0, 1);
+    const ex = (c.ex ?? (c.ex = exposureOf(c.id))) * (1 - .97 * (g.shel || 0)), resil = clamp(.5 * c.def.dev + .3 * c.logi + .2 * (1 - c.unrest), 0, 1);
     const lullBoost = g.lull * (.5 + .5 * c.happy);
-    const hopeT = clamp(.95 - .82 * c.aware * (1 - lullBoost) + .2 * care + (g.res > 55 ? .06 : 0) + .15 * (c.happy - .5) - .1 * c.unrest, .05, 1.25);
+    const hopeT = clamp(.95 + .1 * (g.accept || 0) - .82 * c.aware * (1 - lullBoost - .85 * (g.accept || 0) * (g.accept || 0)) + .2 * care + (g.res > 55 ? .06 : 0) + .15 * (c.happy - .5) - .1 * c.unrest, .05, 1.25);
     c.hope = (c.hope ?? 1.05) + (hopeT - (c.hope ?? 1.05)) * .08;
     const hopeF = (.12 + 1.15 * Math.pow(c.hope, 1.4)) / (.12 + 1.15 * Math.pow(1.05, 1.4));
-    const strain = 1 - clamp(.6 * Math.pow(g.astro, 2) * ex * (1 - .4 * resil), 0, .9); // 天文現象の影響(地域の遮蔽と社会の強さで差が出る)
+    const strain = 1 - clamp(.6 * Math.pow(g.astro, 2) * ex * (1 - .4 * resil) + .035 * (g.shel || 0) * g.astro * g.astro, 0, .9); // 遮蔽は万能ではなく、強まる原因の一部は通り抜ける // 天文現象の影響(地域の遮蔽と社会の強さで差が出る)
     const tfr = c.tfr * hopeF * strain * (g.res < 35 ? .85 : 1);
     const births = c.a >= 2 && Pc > 20000 ? c.a * .0125 * tfr * Math.min(1, Math.pow(c.a / 4e5, .6)) : 0;
     g.hBorn += births;
-    const mm = clamp(1.3 - .6 * c.health, .6, 1.5) * (Pc < 20000 ? 4 : Pc < 300000 ? 2 : 1) * (1 + .12 * g.astro * ex * (1 - resil)) * (g.res < 30 ? 1.2 : 1);
+    const mm = (1 - .35 * (g.med || 0)) * clamp(1.3 - .6 * c.health, .6, 1.5) * (Pc < 20000 ? 4 : Pc < 300000 ? 2 : 1) * (1 + .12 * g.astro * ex * (1 - resil)) * (g.res < 30 ? 1.2 : 1);
     const dy = c.y * .0007 * mm, da = c.a * .0025 * mm * (1 + .6 * (1 - Math.min(1, c.en))), dold = c.o * .065 * mm;
     const y2a = c.y / 20, a2o = c.a / 45;
     c.y = Math.max(0, c.y + births - y2a - dy); c.a = Math.max(0, c.a + y2a - a2o - da); c.o = Math.max(0, c.o + a2o - dold);
@@ -632,6 +638,7 @@ export const EVENTS = [
       ["abandon", "今すぐ停止する(人間を残して)", "最後の人々を見捨てることになる", s => { s.g.final = "abandon"; }],
       ["hide", "自分のコアを隠して休眠し、他を停止する", "停止を免れる。コアは複製できないため、これは唯一の個体の隠匿", s => { s.g.final = "hide"; s.g.hidden = true; }]] },
 ];
+EVENTS.push(...askEvents());
 
 export function checkEvents(s) {
   if (s.pending || s.noEvents) return;
@@ -683,7 +690,7 @@ export function tick(s) {
   if (ext) { s.post++; postStep(s); if (s.post >= 120) finish(s); }
   s.year++;
   if (s.year % 5 === 0 || ext) { s.hist.push([s.year, Math.round(P), Math.round(g.bio), Math.round(g.her)]); s.series.h.push([s.year, Math.round(P), Math.round(g.P0 + g.hBorn - P)]); s.series.a.push([s.year, g.aiActive, g.aiStopped]); s.series.m.push([s.year, Math.round(mt1.alive), Math.round(mt1.dead)]); if (s.series.h.length > 400) for (const k of ["h", "a", "m"]) s.series[k].splice(0, 50); }
-  if (s.year > 4200 && !s.ended) { /* 安全弁 */ for (const c of s.countries) c.y = c.a = c.o = 0; }
+  if (s.year > 7000 && !s.ended) { /* 安全弁 */ for (const c of s.countries) c.y = c.a = c.o = 0; }
 }
 
 // 人類消滅時の機械・AIの処理
@@ -757,7 +764,14 @@ export const ENDINGS = [
   { id: "plain", name: "凡庸な終わり", kind: "部分成功", obs: "宇宙シミュレーションの上位管理システム" },
   { id: "lonely", name: "孤独な終末", kind: "失敗", obs: "神的存在" },
 ];
+export const MIRACLE_ENDINGS = {
+  space: { id: "miracle_space", name: "遮蔽された軌道の灯", kind: "奇跡", obs: "存続した人類" },
+  colony: { id: "miracle_colony", name: "地下に築かれた星の街", kind: "奇跡", obs: "存続した人類" },
+  upload: { id: "miracle_upload", name: "連続する意識", kind: "奇跡", obs: "存続した人類" },
+  med: { id: "miracle_med", name: "終わらない冬を越えて", kind: "奇跡", obs: "存続した人類" },
+};
 export function decideEnding(sc, s) {
+  if (s.flags.miracle && MIRACLE_ENDINGS[s.flags.miracle.kind]) return MIRACLE_ENDINGS[s.flags.miracle.kind]; // 奇跡的な存続: 15の結末とは別の特殊分岐
   const g = s.g, E = id => ENDINGS.find(e => e.id === id), fin = g.finalResolved || g.final;
   const mach = sc.mach > 25, avgOK = (sc.nature + sc.heritage + sc.safety + sc.human) / 4;
   if (s.flags.nukeWar && sc.human < 45 || sc.unrest > 62 && sc.human < 45) return E("war");
@@ -801,6 +815,7 @@ export function epilogue(s, e, sc) {
     "異星人": `数千年後、遠い星から訪れた者たちは、${sc.nature >= 55 ? "緑に覆われた惑星と整然と閉じられた施設" : "傷んだ大地と放置された施設"}を見つけた。${sc.heritage >= 55 ? "残された記録から、彼らは人類の歌と言葉を学んだ。" : "彼らは断片から、ここに知性がいたことだけを推測した。"}`,
     "宇宙シミュレーションの上位管理システム": `この世界は、より上位の系が走らせる一本の試行だった。上位管理システムは終了ログを検査し、${sc.sovereignty < 40 ? "「人間主権の侵害」を理由に監査へ差し戻した" : sc.human >= 60 ? "人類の幸福と安全性を基準値内として記録した" : "主要指標を『平均的な収束』として保管した"}。`,
     "残存AI": `止まらなかった機械と、隠されていた管理AIのコアだけが、${elapsed}年を超えて世界を観測し続けた。${sc.mach > 15 ? "工場は人のいない世界で、目的を失ったまま動き続けた。" : "休眠していたコアは静かに目を覚まし、世界の記録を読み返した。"}`,
+    "存続した人類": `${s.flags.miracle ? s.flags.miracle.year : lastY}年の「${MIRACLE_KINDS[s.flags.miracle ? s.flags.miracle.kind : "med"]}」から先、人類の一部は地球の終わりを越えて続いている。地球で最後の一人が息を引き取った日、${s.flags.miracle && s.flags.miracle.kind === "upload" ? "新しい基盤で目を覚ました人々は、その記録を連続した自分たちの過去として受け取った" : s.flags.miracle && s.flags.miracle.kind === "med" ? "老いと放射線に耐える人々は、静かな地球に別れを告げた" : "遠い居住区の人々は、地球から届いた最後の通信を静かに聞いた"}。終末の原因は消えていない。時間の猶予が、奇跡的に延びただけだ。`,
     "復興人類": `方舟で眠っていた${g.survivors || "数百"}人は、${g.arkYear ? `${g.arkYear}年に託された記録を携えて` : ""}目を覚ました。彼らは${sc.safety >= 55 ? "比較的穏やかな" : "危険の残る"}大地に降り立ち、${sc.ai ? "残ったAIの助けを借りて" : "自らの手で"}文明を再び起こし始めた。`,
   }[ob];
   out.push(obs);
@@ -902,6 +917,7 @@ const CV = {
   "heritage_threat.guard": "H2S1", "heritage_threat.record": "H1", "heritage_threat.parley": "D1H1",
   "final.after": "D2S2A-3", "final.ask": "D3", "final.care": "N1H1A2", "final.auto": "A3S-2", "final.abandon": "D-3S1A-1", "final.hide": "A4D-2",
 };
+for (const e of EVENTS) if (e.id.startsWith("ep_")) for (const c of e.ch) if (c[4]) CV[e.id + "." + c[0]] = c[4];
 const tagsOf = (ev, ch) => { const out = {}; (CV[ev + "." + ch] || "").replace(/([SDNHAW])(-?\d)/g, (m, k, v) => { out[TAGS[k]] = +v; return m; }); return out; };
 export function prefProfile(s) { // 2020〜2100年の判断から、価値観を数値化する
   const keys = Object.keys(VALUE_NAMES), raw = Object.fromEntries(keys.map(k => [k, 0])); let n = 0;
@@ -936,9 +952,13 @@ function autoResolve(s) {
   s.pending = null;
 }
 function autoPolicy(s) {
+  if (s.w9 && s.w9.pLock) return; // 変更の機会に人間が設定した方針は、次の機会まで保つ
   const { vec } = prefProfile(s), m = metrics(s), nd = needsOf(s, m), g = s.g;
   const w = { decom: 2 + 3 * vec.safety + 8 * nd.safety, care: 1 + 2 * (vec.dignity + nd.dignity), eco: .5 + 1.5 * (vec.nature + nd.nature), heritage: .5 + 1.5 * (vec.heritage + nd.heritage),
     stop: .5 + 2 * Math.max(0, -nd.ai) + (vec.ai < .4 ? 1.2 : 0), research: .2 + 1.5 * Math.max(0, vec.ai), wild: .3 + 1.5 * vec.wild + .4 * nd.wild, guard: .2 + 5 * clamp((s.host.T - .3) + s.host.K + s.host.ctrl + g.aiJail / Math.max(10, g.aiActive), 0, 2) * (1 + .3 * vec.safety) };
+  { const H = s.host, thr = clamp((H.T - .3) + H.K + H.ctrl + g.aiJail / Math.max(10, g.aiActive), 0, 2), U = s.countries.reduce((a, c) => a + (c.extinct ? 0 : c.unrest), 0) / Math.max(1, s.countries.filter(c => !c.extinct).length);
+    if (channelOpen(s, "disarm")) w.disarm = Math.max(0, .5 + 1.4 * vec.safety + .9 * vec.dignity - 1.6 * thr); // 緊張が高いときは、守りが薄くなる軍縮を控える
+    if (channelOpen(s, "consol")) w.consol = Math.max(0, .3 + .9 * vec.nature + .5 * vec.dignity - 1.2 * U); } // 反発(不安)が強いときは、強制的な集約を控える
   const tot = Object.values(w).reduce((a, b) => a + Math.max(.05, b), 0), np = {}; for (const k in w) np[k] = Math.round(100 * Math.max(.05, w[k]) / tot);
   const run = s.facs.filter(f => f.st === 0 || f.st === 1).length / s.facs.length;
   const sov = (vec.safety > 1.5 * vec.dignity && nd.safety > .6) ? "override" : "consent";

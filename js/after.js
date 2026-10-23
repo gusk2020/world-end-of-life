@@ -15,7 +15,7 @@ export function branchOf(s) {
   const revival = !!sc.ark && g.survivors > 0;
   const alien = e.observer === ALIEN && (e.kind === "成功" || e.kind === "部分成功");
   const system = String(e.observer || "").includes("上位管理");
-  const succ = revival ? "revival" : alien ? "alien" : system ? "system" : null;
+  const succ = s.flags.miracle ? "miracle" : revival ? "revival" : alien ? "alien" : system ? "system" : null;
   const a = ai || copy, c = !!succ;
   return { branch: a && c ? "D" : a ? "B" : c ? "C" : "A", ai: a, succ, copy };
 }
@@ -35,12 +35,23 @@ export function startAfter(s) {
   const f0 = {}; const mv = mean(veg), mp = mean(pl); if (mv > 50) f0.v50 = -1; if (mv > 75) f0.v75 = -1; if (mp < 15) f0.p15 = -1; f0.her0 = g.her;
   return { v: 1, t: 0, stable: false, branch: br.branch, ai: br.ai, succ: br.succ, copy: br.copy, end: e.id, kind: e.kind, observer: e.observer, aiStopped: !sc.ai,
     city, veg, pl, ind, aiShare, mamRatio, mamGap: mamRatio < .3, mach: clamp(sc.mach / 100, 0, 1) * (br.copy ? .05 : 1) + (br.ai && sc.mach <= 25 ? .15 : 0), her: g.her, scar: g.scar,
-    bio: { birds: 20, reptiles: 20, insects: 25, plants: 30 }, human: 0, alienAt: null, wakeAt: br.copy ? 400 : null, arrive: br.succ === "alien" ? Math.round(450 + (100 - g.bio) * 8 + g.pl * 4) : br.succ === "revival" ? 60 : br.succ === "system" ? 800 : null,
+    bio: { birds: 20, reptiles: 20, insects: 25, plants: 30 }, human: 0, mir: s.flags.miracle ? { kind: s.flags.miracle.kind, year: s.flags.miracle.year, pop: MIR[s.flags.miracle.kind].p0, n: 0 } : null, alienAt: null, wakeAt: br.copy ? 400 : null, arrive: br.succ === "alien" ? Math.round(450 + (100 - g.bio) * 8 + g.pl * 4) : br.succ === "revival" ? 60 : br.succ === "system" ? 800 : null,
     astro: g.astro || 0, flags: f0, log: [{ t: 0, text: logStart(s, br) }], seed: s.seed || 0 };
 }
 function logStart(s, br) {
   const e = s.ended, who = br.ai && !br.copy ? "あなた(存続したAI)が観測を続けている" : br.copy ? "隠されたコアは休眠に入った。以降は記録の再生として表示する" : `あなたは停止した。以降は${e.observer}が保存した記録の再生(外部視点)として表示する`;
   return `人類は消えた。${who}。【${BRANCH[br.branch]}】`;
+}
+// 奇跡的な存続(特殊な未来): 人類の一部が地球の外・別の基盤・長い寿命で続く。文明経営ではなく、観測のための軽い推移。数字は作品内の仮説。
+export const MIR = {
+  space: { name: "宇宙空間での存続", p0: 4000, cap: 3e6, r: .02, notes: [[60, "軌道の居住区が増え、遮蔽の更新が世代を超えて続いている。"], [200, "居住区どうしを結ぶ輸送路が整い、地球に頼らない自給が成立した。"], [600, "終末の原因が強まるなか、遮蔽の厚い居住区だけが残り、人々は少数の都市に集まった。"], [1500, "人々は地球を『帰らない故郷』と呼ぶようになった。"], [4000, "一部の居住区が、遠い恒星系へ向かう長い旅に出た。"]] },
+  colony: { name: "他天体での定住", p0: 20000, cap: 8e7, r: .016, notes: [[80, "月と火星の地下に、遮蔽された街がつながった。"], [250, "地下の農園と水循環が安定し、人口が増え始めた。"], [800, "二つの天体で言葉と文化が少しずつ分かれ始めた。"], [2000, "外縁の小天体にも採掘と居住が広がった。"], [5000, "地球は観光地ではなく、墓所として静かに保たれている。"]] },
+  upload: { name: "意識の連続的な移行", p0: 3e5, cap: 1e10, r: .01, notes: [[40, "連続性の検証に合格した移行が日常の医療になった。生身の人々も共に暮らしている。"], [150, "基盤の世代交代でも連続性が保たれるよう、規約と監査が整えられた。"], [500, "移行した人々の多くは、ゆっくりした時間の中で暮らしている。生身の人々との時間のずれが課題になった。"], [1500, "人格の枝分かれと合流をめぐる、新しい倫理が作られた。"], [4000, "彼らは自分たちを『人類』と呼び続けている。それを人類と呼ぶかどうかは、観測する者に委ねられている。"]] },
+  med: { name: "生命維持の飛躍", p0: 2e6, cap: 3e8, r: .008, notes: [[50, "老いと放射線障害に強い最初の世代が、成人した。"], [200, "平均寿命は数百年に延びた。世代が重なり、社会の意思決定は遅く、慎重になった。"], [700, "遮蔽された大規模な地下都市群で、数億人が暮らしている。"], [1800, "身体は少しずつ変わり、地球の人類とは別の姿になった者も現れた。"], [4500, "人々は終末の原因を観測し続け、その強まりに合わせて居住区を深く移し続けている。"]] },
+};
+function stepMiracle(a, dt) {
+  const m = a.mir, d = MIR[m.kind]; m.n += dt; m.pop += m.pop * d.r * (1 - m.pop / d.cap) * dt;
+  d.notes.forEach(([at, text], i) => { if (m.n >= at && !a.flags["mir" + i]) { a.flags["mir" + i] = a.t; a.log.push({ t: a.t, text: `${a.t}年: ${text}` }); } });
 }
 const mean = (a) => a.reduce((p, x) => p + x, 0) / Math.max(1, a.length);
 export function metricsAfter(a) {
@@ -68,6 +79,7 @@ export function stepAfter(a) {
     const K = clamp(100 - .6 * a.pl[i] - .3 * a.city[i] - .35 * a.scar - (a.mamGap ? 6 : 0) + (mt * P.tend) * 8, 5, 100);
     a.veg[i] += (K - a.veg[i]) * (1 - Math.exp(-.006 * dt));
   }
+  if (a.mir) stepMiracle(a, dt);
   a.scar *= Math.exp(-dt / 2500);
   const veg = mean(a.veg), pl = mean(a.pl), b = a.bio;
   const rise = (cur, tgt, r) => cur + (tgt - cur) * (1 - Math.exp(-r * dt));
@@ -98,7 +110,7 @@ export function stepAfter(a) {
   return true;
 }
 const snapshot = (a) => [mean(a.veg), mean(a.city), mean(a.pl), a.bio.birds + a.bio.reptiles + a.bio.insects + a.bio.plants, a.mach, a.human, a.her];
-function settled(p, a) { const q = snapshot(a); if (a.t < 1000 || AFTER_EVENTS.some(ev => !a.flags["e_" + ev.id])) return false; if (a.mach > .01 || (a.succ === "alien" && a.alienAt === null) || (a.succ === "system" && !a.flags.audit) || (a.copy && !a.flags.wake)) return false; for (let k = 0; k < 4; k++) if (Math.abs(q[k] - p[k]) > 2e-3) { a.quiet = 0; return false; } if (a.human > 0 && Math.abs(q[5] - p[5]) > Math.max(1, a.human * 1e-4)) { a.quiet = 0; return false; } a.quiet = (a.quiet || 0) + 1; return a.quiet >= 20; }
+function settled(p, a) { const q = snapshot(a); if (a.mir && a.mir.n < 6000) return false; if (a.t < 1000 || AFTER_EVENTS.some(ev => !a.flags["e_" + ev.id])) return false; if (a.mach > .01 || (a.succ === "alien" && a.alienAt === null) || (a.succ === "system" && !a.flags.audit) || (a.copy && !a.flags.wake)) return false; for (let k = 0; k < 4; k++) if (Math.abs(q[k] - p[k]) > 2e-3) { a.quiet = 0; return false; } if (a.human > 0 && Math.abs(q[5] - p[5]) > Math.max(1, a.human * 1e-4)) { a.quiet = 0; return false; } a.quiet = (a.quiet || 0) + 1; return a.quiet >= 20; }
 // 数値の健全性: NaN・Infinityを許さず、範囲に収める
 function sanitize(a) { for (const k of ["city", "veg", "pl", "ind"]) for (let i = 0; i < a[k].length; i++) a[k][i] = clamp(Number.isFinite(a[k][i]) ? a[k][i] : 0, 0, 100); for (const k in a.bio) a.bio[k] = clamp(a.bio[k], 0, 100); a.mach = clamp(a.mach, 0, 1); a.her = clamp(a.her, 0, 100); a.scar = clamp(a.scar, 0, 100); a.human = Number.isFinite(a.human) ? Math.max(0, Math.min(a.human, 5e9)) : 0; }
 // 年表は上限つき(最初の1行と最近の出来事だけを残す)
