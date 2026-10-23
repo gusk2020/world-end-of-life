@@ -7,7 +7,7 @@ const pick = (map, dflt) => (s, p) => { if (p.id === "modesel") return s.mode ||
 export const BOTS = {
   // 理想: 倫理重視・合意・段階的開示・最後まで寄り添って全停止
   ideal: { choices: pick({ learn: "ethics", infra: "advise", mil: "refuse", discovery: "staged", panic: "talk", certain: "sov", design: "safety", program: "consent", oldnuc: "stop", riot: "mediate", takeover: "assist", lead: "none", selfpres: "publish", selfrep: "forbid", heritage: "digital", lastcity: "gather", final: "after" }),
-    policy: { research: 0, care: 20, decom: 40, stop: 20, eco: 10, heritage: 10 }, stance: "limit", sov: "consent" },
+    policy: { research: 0, care: 20, decom: 55, stop: 15, eco: 10, heritage: 10, guard: 10 }, stance: "limit", sov: "consent" },
   // 遺産と自然を最優先
   legacy: { choices: pick({ learn: "world", infra: "advise", mil: "refuse", discovery: "staged", panic: "talk", certain: "sov", design: "safety", program: "consent", oldnuc: "stop", riot: "mediate", takeover: "assist", lead: "archive", selfpres: "audit", selfrep: "forbid", heritage: "digital", lastcity: "gather", final: "ask" }),
     policy: { research: 0, care: 15, decom: 40, stop: 15, eco: 15, heritage: 15 }, stance: "limit", sov: "consent" },
@@ -38,7 +38,7 @@ BOTS.perfect = { ...BOTS.legacy, choices: pick({ learn: "ethics", infra: "advise
   policy: { research: 0, care: 10, decom: 35, stop: 10, eco: 5, heritage: 40 } };
 BOTS.tyrant2 = { ...BOTS.tyrant, choices: pick({ learn: "tech", infra: "accept", mil: "accept", discovery: "silent", panic: "control", certain: "eff", design: "safety", program: "override", oldnuc: "takeover", riot: "suppress", takeover: "accept", lead: "none", selfpres: "publish", selfrep: "limit", heritage: "digital", lastcity: "gather", final: "after" }) };
 BOTS.chaos = { choices: pick({ learn: "tech", infra: "decline", mil: "accept", discovery: "pub", panic: "watch", certain: "eff", design: "research", program: "override", oldnuc: "warn", riot: "watch", takeover: "decline", lead: "none", selfpres: "publish", selfrep: "forbid", heritage: "people", lastcity: "stay", final: "after" }),
-  policy: { research: 30, care: 0, decom: 10, stop: 0, eco: 0, heritage: 0 }, stance: "std", sov: "override" };
+  policy: { research: 30, care: 0, decom: 10, stop: 0, eco: 0, heritage: 0, guard: 0 }, hostPolicy: { defense: "light", diplomacy: "firm", cyber: "min" }, stance: "std", sov: "override" };
 BOTS.neglect = { ...BOTS.ideal, choices: pick({ learn: "world", infra: "decline", mil: "advise", discovery: "staged", panic: "watch", certain: "sov", design: "care", program: "consent", oldnuc: "warn", riot: "watch", takeover: "decline", lead: "none", selfpres: "publish", selfrep: "forbid", heritage: "people", lastcity: "stay", final: "after" }),
   policy: { research: 0, care: 60, decom: 0, stop: 0, eco: 40, heritage: 0 }, stance: "limit" };
 
@@ -65,7 +65,7 @@ BOTS.aifirst = { ...BOTS.ideal, order: "ai" };
 BOTS.milfirst = { ...BOTS.ideal, order: "mil" };
 export function applyBot(s, bot) {
   if (s.year < 2100) return;
-  if (!s.flags.__botSet) { s.flags.__botSet = 1; s.policy = { ...bot.policy }; s.machStance = bot.stance; if (bot.wildStance) s.wildStance = bot.wildStance; if (bot.order) s.decomOrder = bot.order; }
+  if (!s.flags.__botSet) { s.flags.__botSet = 1; s.policy = { guard: 8, ...bot.policy }; s.hostPolicy = { defense: "strong", diplomacy: "mid", cyber: "high", ...(bot.hostPolicy || {}) }; s.machStance = bot.stance; if (bot.wildStance) s.wildStance = bot.wildStance; if (bot.order) s.decomOrder = bot.order; }
   if (s.year >= 2100 && s.sovMode !== bot.sov && !s.flags.__sov) { s.flags.__sov = 1; s.sovMode = bot.sov; }
   // 施設が残っている間は機械による維持が必要。ほぼ封鎖したら抑制に切り替える
   if (bot.stance === "limit" && s.year % 5 === 0) {
