@@ -1,0 +1,8 @@
+{"label":"第8次 ×1000 CPU×1","cpuSlowdown":1,"speedButton":4,"span":"2102→2302","sec":0.12,"year":2314,"frameGapP95ms":50}
+{"label":"第9次 ×1000 CPU×1","cpuSlowdown":1,"speedButton":4,"span":"2102→2302","sec":0.34,"year":2323,"frameGapP95ms":83}
+{"label":"第8次 ×1000 CPU×1","cpuSlowdown":1,"speedButton":4,"span":"2102→2302","sec":0.14,"year":2308,"frameGapP95ms":67}
+{"label":"第9次 ×1000 CPU×1","cpuSlowdown":1,"speedButton":4,"span":"2102→2302","sec":0.32,"year":2365,"frameGapP95ms":83}
+{"label":"第8次 ×1000 CPU×4","cpuSlowdown":4,"speedButton":4,"span":"2102→2302","sec":1.37,"year":2343,"frameGapP95ms":167}
+{"label":"第9次 ×1000 CPU×4","cpuSlowdown":4,"speedButton":4,"span":"2102→2302","sec":1.97,"year":2309,"frameGapP95ms":150}
+{"label":"第8次 ×1000 CPU×4","cpuSlowdown":4,"speedButton":4,"span":"2102→2302","sec":1.12,"year":2327,"frameGapP95ms":150}
+{"label":"第9次 ×1000 CPU×4","cpuSlowdown":4,"speedButton":4,"span":"2102→2302","sec":1.61,"year":2310,"frameGapP95ms":167}

@@ -50,10 +50,10 @@ export function newGame(seed = 1) {
     const c = {
       id: d.id, name: d.name, def: d, y: P * yS, a: P * (1 - yS - oS), o: P * oS, P0: P, tfr: d.tfr, L0: P * (1 - yS - oS) * .75,
       gdp0: d.gdp, gdp: d.gdp, ind: 1, logi: .6 + .35 * d.dev, happy: .5 + .1 * d.dev, unrest: .25 - .1 * d.dev,
-      consent: .15, hope: 1.05, ex: exposureOf(d.id), aware: 0, auto: 0, health: .4 + .5 * d.dev, m: 1, en: 1, extinct: false, nucS: 0,
+      consent: .15, hope: 1.05, ex: exposureOf(d.id), aware: 0, auto: 0, health: .4 + .5 * d.dev, m: 1, en: 1, extinct: false, nucS: 0, sab: 0, cut: 0, pauseUntil: 0, sup: 1, econ: 1,
     };
     s.countries.push(c); s.g.gdp0 += d.gdp; s.g.P0 += P;
-    const mk = (t, n, tag) => { for (let i = 0; i < n; i++) s.facs.push({ id: fid++, c: s.countries.length - 1, t, n: `${d.name}の${FACTYPES[t].name}${tag}#${i + 1}`, st: 0, safety: clamp(.55 + .4 * d.dev + (rnd(s) - .5) * .1, .3, .97), prog: 0 }); };
+    const mk = (t, n, tag) => { for (let i = 0; i < n; i++) s.facs.push({ id: fid++, c: s.countries.length - 1, t, n: `${d.name}の${FACTYPES[t].name}${tag}#${i + 1}`, st: 0, safety: clamp(.55 + .4 * d.dev + (rnd(s) - .5) * .1, .3, .97), prog: 0, rogue: false }); };
     mk(0, d.nuc, "発電所"); mk(1, d.chem, "工場"); mk(2, d.dam, ""); mk(3, d.milN, "拠点"); mk(4, d.ai, "センター"); mk(5, d.space, "基地");
   }
   s.g.peak = s.g.P0; s.sites = initSites(); aiInit(s);
@@ -64,14 +64,14 @@ function addLog(s, text, kind = "hist") { s.log.push({ y: s.year, t: text, k: ki
 // ---------- 人類とAIの累計(砂時計用) ----------
 // 人類: P0 + hBorn - hDead == 現在人口。死亡は「出生を除く人口の減少すべて」を毎年の収支で数えるので二重計上しない。
 // AI: 個体は固有のワンチップ。新造=aiBuilt、停止・廃棄=aiStopped、稼働中=aiActive。休眠・再稼働・身体の交換や移設は個体数に影響しない。
-function aiTargetUnits(s, post) {
-  const g = s.g; let run = 0; for (const f of s.facs) if (f.t === 4 && f.st === 0) run++;
+function aiTargetUnits(s, post, cached) {
+  const g = s.g; let run = 0; if (cached && g.aiRunC && g.aiRunC.y === s.year) run = g.aiRunC.n; else for (const f of s.facs) if (f.t === 4 && f.st === 0) run++; // 同じ年に数え済みなら再利用する
   const m = post ? g.machRemain : g.mach;
   return Math.round(run * 30 * (1 + m / 50) + m * m * 30) + (post ? (g.aiRemain ? 1 : 0) : 1);
 }
 function aiInit(s) { const n = aiTargetUnits(s, false); s.g.aiActive = n; s.g.aiBuilt = n; s.g.aiStopped = 0; }
 export function stepAI(s, force) {
-  const g = s.g, post = g.extinctYear !== undefined, tgt = aiTargetUnits(s, post);
+  const g = s.g, post = g.extinctYear !== undefined, tgt = aiTargetUnits(s, post, !force);
   const quota = Math.round(g.aiActive * (.15 + .35 * (s.flags.selfRep || 0)) * ({ limit: .35, std: 1, expand: 1.3 }[s.machStance] || 1) + 5); // 製造枠: 無制限増殖はできない(抑制方針では絞られる)
   const rate = coreFailRate(s), fail = Math.min(g.aiActive - 1, Math.round(g.aiActive * rate)); // 天文現象によるコアの故障(複製できないので戻らない)
   g.aiActive -= fail; g.aiStopped += fail; g.aiFailed += fail;
@@ -94,6 +94,8 @@ export function migrate(s) { // 旧セーブ(v1)の読み込み
   if (g.sitesBio === undefined) { g.sitesBio = 0; g.hMod = 0; }
   if (g.aiActive === undefined) aiInit(s);
   if (!s.host) s.host = hostInit(); else { const h0 = hostInit(); s.host = { ...h0, ...s.host, fac: { ...h0.fac, ...(s.host.fac || {}) }, str: { ...h0.str, ...(s.host.str || {}) }, hist: { ...h0.hist, ...(s.host.hist || {}) } }; } if (!s.hostPolicy) s.hostPolicy = { ...HOST_POLICY_DEFAULT }; if (g.aiJail === undefined) g.aiJail = 0;
+  for (const c of s.countries) { if (c.sab === undefined) c.sab = 0; if (c.cut === undefined) c.cut = 0; if (c.pauseUntil === undefined) c.pauseUntil = 0; }
+  for (const f of s.facs) if (f.rogue === undefined) f.rogue = false; // 形を揃える(後から項目が増えると処理が遅くなる)
   if (!s.mam) s.mam = initMammals();
   if (!s.series) s.series = { h: [], a: [], m: [] };
   if (!s.mode) s.mode = "manual"; if (!s.wildStance) s.wildStance = "balanced"; if (!s.decomOrder) s.decomOrder = "hazard"; if (s.year >= PROGRAM) for (const ev of EVENTS) if (ev.prelude && s.done[ev.id] === undefined) s.done[ev.id] = s.year; // 終活期に入った古いセーブに助走期間の質問を出さない if (!s.autoLog) s.autoLog = [];
@@ -109,6 +111,7 @@ export function migrate(s) { // 旧セーブ(v1)の読み込み
 export const total = (s) => s.countries.reduce((p, c) => p + c.y + c.a + c.o, 0);
 export const cpop = (c) => c.y + c.a + c.o;
 // 国×施設種ごとの稼働割合を1回の走査で作る(国ごとに全施設を数え直さない)
+const NEED_ST = [3000, 1500, 30, 0];
 const frTable = (s) => { const n = s.countries.map(() => [0, 0, 0, 0, 0, 0]), r = s.countries.map(() => [0, 0, 0, 0, 0, 0]); for (const f of s.facs) { n[f.c][f.t]++; if (f.st === 0) r[f.c][f.t]++; } return (ci, t) => n[ci][t] ? r[ci][t] / n[ci][t] : 0; };
 const fracRun = (s, ci, t) => { let n = 0, r = 0; for (const f of s.facs) if (f.c === ci && f.t === t) { n++; if (f.st === 0) r++; } return n ? r / n : 0; };
 
@@ -229,15 +232,16 @@ function stepYear(s) {
   g.sov = clamp(g.sov, 0, 1);
 
   // 施設の維持と事故
-  const run = s.countries.map(() => ({ need: 1 }));
-  for (const fa of s.facs) run[fa.c].need += [3000, 1500, 30, 0][fa.st];
-  const FR = frTable(s);
+  const nc = s.countries.length, needArr = new Float64Array(nc).fill(1), cntN = new Int32Array(nc * 6), cntR = new Int32Array(nc * 6);
+  for (const fa of s.facs) { needArr[fa.c] += NEED_ST[fa.st]; const ix = fa.c * 6 + fa.t; cntN[ix]++; if (fa.st === 0) cntR[ix]++; }
+  const FR = (ci, t) => { const ix = ci * 6 + t; return cntN[ix] ? cntR[ix] / cntN[ix] : 0; }; // 国×施設種ごとの稼働割合(1回の走査で作る)
+  const run = { get: i => needArr[i] };
   for (let ci = 0; ci < s.countries.length; ci++) {
     const c = s.countries[ci], Pc = cpop(c);
     if (Pc <= 0) c.extinct = true;
     c.auto = clamp(g.mach / 100 * .9 * clamp(c.def.dev * 1.4, .2, 1), 0, .9) * (1 - g.coreFail) * (1 - .6 * (s.host ? s.host.ctrl : 0));
     const lab = c.a * .75 * (c.extinct ? 0 : 1) + c.auto * c.L0;
-    const need = run[ci].need * (1 - .15 * (g.cons || 0) / 100); // 交通網と居住域の集約で、維持に要る人手が減る
+    const need = needArr[ci] * (1 - .15 * (g.cons || 0) / 100); // 交通網と居住域の集約で、維持に要る人手が減る
     c.m = clamp(lab / need, 0, 1) * (1 - .25 * s.w9.apathy);
     const nS = Math.min(.5, c.def.nuc * .012), dS = Math.min(.4, c.def.dam * .01);
     const sup = (1 - nS - dS) * (1 - fos) + nS * FR(ci, 0) + dS * FR(ci, 2);
@@ -263,10 +267,11 @@ function stepYear(s) {
     const age = fa.st === 2 ? .002 : .0015;
     fa.safety = clamp(fa.safety + (fa.st === 2 ? (mEff >= .3 ? .0005 : -.001) : .03 * (mEff - .55) - age), .02, .97);
     const k = fa.st === 0 ? 1 : fa.st === 1 ? .6 : .03;
-    const p = T.haz * .02 * Math.pow(1 - fa.safety, 3) * k * (1 + 2 * c.unrest * (fa.t === 3 ? 1 : 0)) * (1 + 1.5 * (c.sab || 0)); // 敵対勢力の破壊活動を受けた国の施設は、事故が起きやすい
+    const u1 = 1 - fa.safety, p = T.haz * .02 * (u1 * u1 * u1) * k * (1 + 2 * c.unrest * (fa.t === 3 ? 1 : 0)) * (1 + 1.5 * (c.sab || 0)); // 敵対勢力の破壊活動を受けた国の施設は、事故が起きやすい
     if (rnd(s) < p) { const pre = fa.st; fa.st = 3; accident(s, fa, c, pre); }
   }
 
+  g.aiRunC = { y: yr, n: aiRun };
   // 施設停止(終活プログラム)
   if (prog) {
     // 解体の実効力: 国ごとの電力・物流・技術者(維持率)・機械の自動化に左右され、国家間の不安は配分そのものを削る
