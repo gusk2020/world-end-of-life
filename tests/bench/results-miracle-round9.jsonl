@@ -1,0 +1,6 @@
+{"strategy":"default","seeds":[121,140],"runs":20,"miracles":0,"kinds":{},"years":[]}
+{"strategy":"default","seeds":[101,120],"runs":20,"miracles":0,"kinds":{},"years":[]}
+{"strategy":"seeker","seeds":[151,175],"runs":25,"miracles":0,"kinds":{},"years":[]}
+{"strategy":"seeker","seeds":[101,125],"runs":25,"miracles":2,"kinds":{"space":2},"years":[2398,2652]}
+{"strategy":"seeker","seeds":[126,150],"runs":25,"miracles":1,"kinds":{"space":1},"years":[2418]}
+{"strategy":"seeker","seeds":[176,200],"runs":25,"miracles":1,"kinds":{"med":1},"years":[2532]}
