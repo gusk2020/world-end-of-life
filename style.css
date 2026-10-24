@@ -150,3 +150,13 @@ body.prelude .modal .box,body.prelude #pre,body.ending .modal .box,body.ending #
 .modal.stage .box .small:first-child{display:flex;align-items:baseline}
 body.ending #precard{display:none}
 .modal.stage .box{max-height:68vh}.modal.stage .box .opt{min-height:48px;margin:6px 0;padding:8px 10px}.modal.stage .box .gobar{margin-top:4px}
+/* 第9次: 解放・新着・変更機会 */
+.nw{display:inline-block;margin-left:6px;padding:0 5px;border-radius:8px;background:#ffb347;color:#000;font-size:10px;font-weight:bold;vertical-align:middle}
+#tabs button.nw{position:relative;background:inherit;color:inherit;margin:0;padding-left:inherit;border-radius:0;font-size:inherit;font-weight:inherit}
+#tabs button.nw::after{content:"";position:absolute;top:4px;right:6px;width:9px;height:9px;border-radius:50%;background:#ffb347;box-shadow:0 0 0 2px var(--bg,#000)}
+.sl.locked{opacity:.65}.sl.locked .lk{margin-left:6px;font-size:10px;color:var(--dim);border:1px solid var(--dim);border-radius:8px;padding:0 5px}
+.card.locked{opacity:.75}.winon{border-color:#ffb347}.winoff{border-color:var(--dim)}
+.ep{margin:6px 0;padding:6px 8px;border-left:3px solid var(--dim);background:rgba(255,255,255,.04)}.ep.bad{border-left-color:#e8825a}.ep.good{border-left-color:#7dc57a}
+.small.warn{color:#ffb347}
+.bt{margin:8px 0}.bt .nm{display:flex;justify-content:space-between;gap:8px}
+input:disabled,button:disabled{opacity:.5}

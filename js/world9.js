@@ -35,7 +35,7 @@ export function siteOpen(s, d, mode) {
 }
 // 全自動のときは変更の機会(window)の間だけ方針・遺産の設定を変えられる。手動・半自動はいつでも
 export const canEdit = (s) => s.mode !== "auto" || s.year < PROGRAM9 || !!(s.w9 && s.w9.win.open);
-export const WIN = { every: 250, len: 80, first: 2200 };
+export const WIN = { every: 300, len: 80, first: 2200 };
 export function newMarks(s, tab) { const w = s.w9; if (!w) return []; const out = UNLOCKS.filter(u => u.tab === tab && w.unl[u.id] && !w.seen[u.id]).map(u => ({ id: u.id, name: u.name, kind: "unlock" })); if (tab === "policy" && w.win.open && !w.win.seen) out.push({ id: "win", name: "方針の変更機会", kind: "win" }); if (tab === "sites" && w.win.open && !w.win.seenS) out.push({ id: "win", name: "遺産設定の変更機会", kind: "win" }); return out; }
 export function markSeen(s, tab) { const w = s.w9; if (!w) return false; let ch = false; for (const u of UNLOCKS) if (u.tab === tab && w.unl[u.id] && !w.seen[u.id]) { w.seen[u.id] = s.year; ch = true; } if (w.win.open) { if (tab === "policy" && !w.win.seen) { w.win.seen = true; ch = true; } if (tab === "sites" && !w.win.seenS) { w.win.seenS = true; ch = true; } } return ch; }
 
@@ -43,9 +43,10 @@ export function markSeen(s, tab) { const w = s.w9; if (!w) return false; let ch 
 function gather(s) {
   const g = s.g, live = []; let P = 0, U = 0, Hl = 0, Hp = 0, Cn = 0, Lg = 0, Hop = 0, old = 0, shrunk = 0;
   for (const c of s.countries) { if (c.extinct) continue; const p = cpop(c); if (p <= 0) continue; live.push(c); P += p; U += c.unrest * p; Hl += c.health * p; Hp += c.happy * p; Cn += c.consent * p; Lg += c.logi * p; Hop += c.hope * p; old += c.o; if (p / c.P0 < .5) shrunk++; }
-  const q = P || 1; let nMil = 0, nMilStop = 0, nAI = 0;
-  for (const f of s.facs) if (f.t === 3) { nMil++; if (f.st === 2) nMilStop++; }
-  return { live, P, pr: P / g.P0, U: U / q, Hl: Hl / q, Hp: Hp / q, Cn: Cn / q, Lg: Lg / q, Hop: Hop / q, oldShare: old / q, shrunk, nMil, nMilStop, milFrac: nMil ? nMilStop / nMil : 0, cons: (g.cons || 0) / 100 };
+  const q = P || 1, w = s.w9; // 施設の集計は5年に1回で足りる(ゆっくり動く量)。毎年全施設を数えない
+  if (!w.fc || s.year - w.fc.y >= 5 || s.year < w.fc.y) { let nMil = 0, nMilStop = 0, nSp = 0, nSpRun = 0; for (const f of s.facs) { if (f.t === 3) { nMil++; if (f.st === 2) nMilStop++; } else if (f.t === 5) { nSp++; if (f.st === 0) nSpRun++; } } w.fc = { y: s.year, nMil, nMilStop, nSp, nSpRun }; }
+  const nMil = w.fc.nMil, nMilStop = w.fc.nMilStop;
+  return { live, spRatio: w.fc.nSp ? w.fc.nSpRun / w.fc.nSp : 0, P, pr: P / g.P0, U: U / q, Hl: Hl / q, Hp: Hp / q, Cn: Cn / q, Lg: Lg / q, Hop: Hop / q, oldShare: old / q, shrunk, nMil, nMilStop, milFrac: nMil ? nMilStop / nMil : 0, cons: (g.cons || 0) / 100 };
 }
 const wpick = (s, list, wf) => { let tot = 0; for (const c of list) tot += Math.max(1e-9, wf(c)); let r = rnd(s) * tot; for (const c of list) { r -= Math.max(1e-9, wf(c)); if (r <= 0) return c; } return list[list.length - 1]; };
 
@@ -202,17 +203,17 @@ export const EP_ASKS = {
 // 単一の抽選ではなく、複数の必要条件(hard)がそろった年に、小さな成功確率(base)を soft の達成度で重みづけして引く。
 // 宇宙天文学的な終末原因は宇宙線・高エネルギー粒子の増加として設定されている。宇宙空間に出ても遮蔽が薄いので不利で、他天体の地下遮蔽なら成り立ちうる。
 export const BT = {
-  space: { name: "宇宙空間への進出(軌道居住)", note: "軌道には大気の遮蔽が無く、終末の原因が強まる環境では成り立ちにくい", start: 2130, base: 2.0e-5,
-    hard: [["宇宙基地が稼働している", (s, st) => spaceRatio(s) >= .5], ["資源に余裕がある", s => s.g.res >= 35], ["十分な技術者がいる", (s, st) => st.P >= 3e7], ["厚い遮蔽の技術がある", s => (s.g.shel || 0) >= .5]],
+  space: { name: "宇宙空間への進出(軌道居住)", note: "軌道には大気の遮蔽が無く、終末の原因が強まる環境では成り立ちにくい", start: 2130, base: 1.2e-4,
+    hard: [["宇宙基地が稼働している", (s, st) => st.spRatio >= .5], ["資源に余裕がある", s => s.g.res >= 20], ["十分な技術者がいる", (s, st) => st.P >= 3e7], ["厚い遮蔽の技術がある", s => (s.g.shel || 0) >= .5]],
     soft: [["電力", (s, st) => st.live.length ? avg(st.live, c => Math.min(1, c.en)) : 0], ["輸送", (s, st) => st.Lg], ["国家間の合意", (s, st) => st.Cn], ["静穏期である", s => s.g.lull || 0]] },
-  colony: { name: "他天体への移民・定住", note: "月・火星などの深い地下に遮蔽居住区を築く。軌道居住の経験(宇宙進出)が前提", start: 2160, base: 3.0e-5, needs: ["space", 55],
-    hard: [["宇宙基地が稼働している", (s, st) => spaceRatio(s) >= .6], ["資源に余裕がある", s => s.g.res >= 40], ["十分な技術者がいる", (s, st) => st.P >= 5e7], ["厚い遮蔽の技術がある", s => (s.g.shel || 0) >= .6], ["医療の水準が高い", s => (s.g.med || 0) >= .3]],
+  colony: { name: "他天体への移民・定住", note: "月・火星などの深い地下に遮蔽居住区を築く。軌道居住の経験(宇宙進出)が前提", start: 2160, base: 1.8e-4, needs: ["space", 55],
+    hard: [["宇宙基地が稼働している", (s, st) => st.spRatio >= .6], ["資源に余裕がある", s => s.g.res >= 22], ["十分な技術者がいる", (s, st) => st.P >= 5e7], ["厚い遮蔽の技術がある", s => (s.g.shel || 0) >= .6], ["医療の水準が高い", s => (s.g.med || 0) >= .3]],
     soft: [["電力", (s, st) => st.live.length ? avg(st.live, c => Math.min(1, c.en)) : 0], ["輸送", (s, st) => st.Lg], ["国家間の合意", (s, st) => st.Cn], ["静穏期である", s => s.g.lull || 0]] },
-  upload: { name: "意識の連続的な移行(アップロード)", note: "情報の複製は連続性を保証しない。この世界で成功とみなすのは、連続性の検証に合格した段階的な移行だけ。管理AIのコアは複製できず対象外", start: 2190, base: 1.5e-5, needs: ["med", 50],
-    hard: [["脳と意識の研究が進んでいる", s => s.g.rsr >= 70], ["資源に余裕がある", s => s.g.res >= 40], ["十分な技術者がいる", (s, st) => st.P >= 5e7], ["誤り訂正と遮蔽がある", s => (s.g.shel || 0) >= .6], ["社会が連続性を受け入れている", (s, st) => st.Cn >= .55]],
+  upload: { name: "意識の連続的な移行(アップロード)", note: "情報の複製は連続性を保証しない。この世界で成功とみなすのは、連続性の検証に合格した段階的な移行だけ。管理AIのコアは複製できず対象外", start: 2190, base: 1.0e-4, needs: ["med", 50],
+    hard: [["脳と意識の研究が進んでいる", s => s.g.rsr >= 70], ["資源に余裕がある", s => s.g.res >= 25], ["十分な技術者がいる", (s, st) => st.P >= 5e7], ["誤り訂正と遮蔽がある", s => (s.g.shel || 0) >= .6], ["社会が連続性を受け入れている", (s, st) => st.Cn >= .55]],
     soft: [["電力", (s, st) => st.live.length ? avg(st.live, c => Math.min(1, c.en)) : 0], ["輸送", (s, st) => st.Lg], ["幸福", (s, st) => st.Hp], ["AIとの信頼", s => s.ai.trust / 100]] },
-  med: { name: "生命維持・再生医療の飛躍", note: "老化と放射線障害に立ち向かう医療。成功しても終末の原因は消えないが、人類が長く生きる道になる", start: 2125, base: 8.0e-5,
-    hard: [["医療の水準が高い", s => (s.g.med || 0) >= .4], ["資源に余裕がある", s => s.g.res >= 35], ["十分な技術者がいる", (s, st) => st.P >= 2e7], ["遮蔽がある", s => (s.g.shel || 0) >= .4]],
+  med: { name: "生命維持・再生医療の飛躍", note: "老化と放射線障害に立ち向かう医療。成功しても終末の原因は消えないが、人類が長く生きる道になる", start: 2125, base: 4.0e-4,
+    hard: [["医療の水準が高い", s => (s.g.med || 0) >= .4], ["資源に余裕がある", s => s.g.res >= 20], ["十分な技術者がいる", (s, st) => st.P >= 2e7], ["遮蔽がある", s => (s.g.shel || 0) >= .4]],
     soft: [["電力", (s, st) => st.live.length ? avg(st.live, c => Math.min(1, c.en)) : 0], ["健康", (s, st) => st.Hl], ["国家間の合意", (s, st) => st.Cn], ["静穏期である", s => s.g.lull || 0]] },
 };
 const avg = (a, f) => a.reduce((p, x) => p + f(x), 0) / Math.max(1, a.length);
@@ -231,11 +232,11 @@ function btStep(s, sh, st, flow) {
     if (b.done || s.year < d.start) continue; if (d.needs && ((w.bt[d.needs[0]] || { p: 0 }).p < d.needs[1])) continue;
     const feas = cl(avg(d.hard, ([, f]) => f(s, st) ? 1 : .35) * .6 + .4 * cl(g.res / 60, 0, 1), 0, 1) * (1 - .6 * (s.host.ctrl || 0)) * (1 - w.indiv);
     if (b.p < 100) {
-      const inc = flow * sh.research * 0.008 * feas * (1 - b.p / 140);
+      const inc = flow * sh.research * 0.05 * feas * (1 - b.p / 140);
       b.p = cl(b.p + inc, 0, 100); g.res = cl(g.res - inc * .004, 0, 100);
       // 失敗・中断・偽の突破口
-      if (b.p >= 20 && rnd(s) < .012 * (1.3 - feas)) {
-        const fake = rnd(s) < .35, loss = fake ? .5 : .3 + .2 * rnd(s); b.fails++; const bigHope = b.p >= 45; b.p *= 1 - loss;
+      if (b.p >= 20 && rnd(s) < .008 * (1.3 - feas)) {
+        const fake = rnd(s) < .35, loss = fake ? .4 : .2 + .15 * rnd(s); b.fails++; const bigHope = b.p >= 45; b.p *= 1 - loss;
         log(s, `【挑戦】${d.name}: ${fake ? "突破口と発表された成果が検証で否定された" : "実験の失敗と中断が重なり"}、進捗が${Math.round(loss * 100)}%後退した。`, "acc");
         if (bigHope && !w.ep.some(e => e.id === "letdown")) startEp(s, "letdown", { sev: fake ? .9 : .6, cause: `原因: ${d.name}への期待が大きかっただけに、失敗が社会の失望を呼んだ` });
       }
@@ -274,6 +275,7 @@ function episodes(s, sh, st) {
   let started = 0; const warns = [];
   for (const id in EPISODES) {
     const def = EPISODES[id]; const last = w.last[id]; if (last !== undefined && s.year - last < def.cool) continue; if (w.ep.some(e => e.id === id)) continue;
+    
     const p = def.risk(s, st, P); if (p <= 0) continue;
     const wr = def.warn && def.warn(s, st, P); if (wr) warns.push(wr);
     if (def.kind === "bad" && w.ep.filter(e => EPISODES[e.id].kind === "bad").length >= 2) continue; // 同時に重なる悪い出来事は2つまで
@@ -352,4 +354,10 @@ export function retroUnlock(s) {
   const w = s.w9; if (s.year < PROGRAM9) return;
   const st = gather(s); for (const u of UNLOCKS) if (!w.unl[u.id] && u.when(s, st)) { w.unl[u.id] = s.year; w.seen[u.id] = s.year; }
   w.next = Math.max(WIN.first, Math.ceil((s.year + 1) / 50) * 50);
+}
+
+// 画面用: 存続への挑戦の現状(必要条件が満たされているかも)
+export function btStatus(s) {
+  const st = gather(s), w = s.w9;
+  return Object.keys(BT).map(k => { const d = BT[k], b = w.bt[k] || { p: 0, fails: 0 }; const waiting = s.year < d.start || !!(d.needs && ((w.bt[d.needs[0]] || { p: 0 }).p < d.needs[1])); return { key: k, name: d.name, note: d.note, p: b.p, done: !!b.done, fails: b.fails || 0, q: b.p >= 100 ? miracleChance(s, st, k) : 0, waiting, hard: d.hard.map(([n, f]) => [n, !!f(s, st)]) }; });
 }

@@ -464,6 +464,40 @@ console.log("\n■ ×1000の性能(新しい世界)");
   await c6.close();
 }
 
+console.log("■ 第9次: 政策の段階的解放・新着の印・全自動の変更機会");
+{
+  const c9 = await b.newContext({ viewport: { width: 360, height: 740 }, hasTouch: true }), q = await c9.newPage(); const e9 = []; q.on("pageerror", e => e9.push(e.message));
+  await q.addInitScript(() => localStorage.setItem("weol.settings", JSON.stringify({ introSeen: true, tutorialDone: true, observe: { sec: 0, style: "stop" } })));
+  await q.goto(URL_); await q.waitForTimeout(500); await q.evaluate(() => window.__game.skipPrelude("blue")); await q.waitForTimeout(200);
+  await q.evaluate(() => { const g = window.__game, S = g.S, E = g.E; if (!g.paused) g.togglePause(); S.noEvents = true; S.pending = null; document.getElementById("modal").hidden = true; while (S.year < 2112) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } g.refresh(true); });
+  ok(await q.evaluate(() => document.querySelector("#tabs [data-t=policy]").classList.contains("nw")), "新しい機能が解放されると方針タブに新着の印が出る");
+  await q.click("#tabs [data-t=policy]"); await q.waitForTimeout(150);
+  ok(!(await q.evaluate(() => document.querySelector("#tabs [data-t=policy]").classList.contains("nw"))), "方針タブを開いて確認すると印は消える");
+  const lk = await q.evaluate(() => ({ locked: document.querySelectorAll("#policy .sl.locked").length, txt: document.getElementById("policy").textContent, over: document.documentElement.scrollWidth <= 360 }));
+  ok(lk.locked >= 1 && /軍縮・民生転換/.test(lk.txt) && /未解放/.test(lk.txt) && /解放条件/.test(lk.txt), `未解放の配分は選べず、解放条件が示される(${lk.locked}件)`);
+  ok(lk.over, "360px幅で横にはみ出さない(方針タブ)");
+  ok(/存続への挑戦/.test(lk.txt) && /世界の状態/.test(lk.txt), "存続への挑戦と、長期の存続を決める要素が表示される");
+  // 全自動: 変更機会の外は変更できない
+  await q.evaluate(() => { const g = window.__game, S = g.S; S.mode = "auto"; g.refresh(true); });
+  await q.click("#tabs [data-t=map]"); await q.click("#tabs [data-t=policy]"); await q.waitForTimeout(150);
+  const off = await q.evaluate(() => ({ dis: [...document.querySelectorAll("#policy input[type=range]")].every(x => x.disabled), apply: document.getElementById("apply").disabled, txt: document.getElementById("policy").textContent, pm: [...document.querySelectorAll("#policy [data-pm]")].every(x => !x.disabled) }));
+  ok(off.dis && off.apply && /いまは設定を変更できません/.test(off.txt) && off.pm, "全自動の変更機会の外では、方針を変更できない(進行モードは変えられる)");
+  await q.click("#tabs [data-t=sites]"); await q.waitForTimeout(150);
+  ok(await q.evaluate(() => [...document.querySelectorAll("#sites [data-s]")].every(x => x.disabled)), "全自動の変更機会の外では、遺産の設定も変更できない");
+  await q.evaluate(() => { const g = window.__game, S = g.S; S.w9.win.open = true; S.w9.win.from = S.year; S.w9.win.until = S.year + 80; S.w9.win.seen = S.w9.win.seenS = false; g.refresh(true); });
+  ok(await q.evaluate(() => document.querySelector("#tabs [data-t=policy]").classList.contains("nw") && document.querySelector("#tabs [data-t=sites]").classList.contains("nw")), "変更機会が来ると方針・遺産タブに印が出る");
+  await q.click("#tabs [data-t=policy]"); await q.waitForTimeout(150);
+  const on = await q.evaluate(() => ({ en: [...document.querySelectorAll("#policy input[type=range]")].every(x => !x.disabled), txt: document.getElementById("policy").textContent }));
+  ok(on.en && /変更機会/.test(on.txt), "変更機会の間は方針を変更できる");
+  const y1 = await q.evaluate(() => window.__game.S.year); await q.evaluate(() => { const g = window.__game; if (g.paused) g.togglePause(); g.setSpeed(2); }); await q.waitForTimeout(1200);
+  ok((await q.evaluate(() => window.__game.S.year)) === y1, "変更機会中に方針タブを開いている間は、時間が止まる(編集のため)");
+  await q.click("#tabs [data-t=sites]"); await q.waitForTimeout(150);
+  ok(await q.evaluate(() => [...document.querySelectorAll("#sites [data-s]")].some(x => !x.disabled) && [...document.querySelectorAll("#sites [data-s]")].some(x => x.disabled && /🔒/.test(x.textContent))), "遺産タブ: 解放済みは選べ、未解放は鍵つきで選べない");
+  await q.click("#tabs [data-t=status]"); await q.waitForTimeout(150);
+  ok(/世界の出来事/.test(await q.textContent("#status")), "状況タブに世界の出来事(原因と影響)が表示される");
+  ok(e9.length === 0, "第9次の画面でページエラーなし"); await c9.close();
+}
+
 console.log("エラー:", errs.length ? errs : "なし"); ok(errs.length === 0, "ページエラーなし");
 await p.screenshot({ path: process.env.SHOT || "/tmp/claude-0/ui360.png" });
 await b.close(); process.exit(fail ? 1 : 0);

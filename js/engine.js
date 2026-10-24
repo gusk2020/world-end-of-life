@@ -2,10 +2,12 @@
 import { COUNTRY_DEFS, FACTYPES } from "./data.js";
 import { SITES, initSites, stepSites, siteScore, siteSummary, setSite, applySitePolicy, undecided } from "./heritage.js";
 import { cityNarratives, decadeNarrative, cityOf, era } from "./narrative.js";
-import { W9_DEFAULT, stepW9, channelOpen, askEvents, retroUnlock, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance } from "./world9.js";
+import { W9_DEFAULT, stepW9, channelOpen, askEvents, retroUnlock, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance, newMarks, markSeen, WIN, btStatus } from "./world9.js";
 import { GROUPS, WILDLAND, initMammals, mammalN0, mammalTotals, wildAlive, exposureOf, stepAstro, coreFailRate, stepMammals, ecoFunction, mammalScore } from "./life.js";
 export { GROUPS, mammalTotals, mammalScore, wildAlive, coreFailRate, ecoFunction };
-export { W9_DEFAULT, channelOpen, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance };
+export { W9_DEFAULT, channelOpen, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance, newMarks, markSeen, WIN, btStatus };
+// 解放済みの遺産だけに、一括の方針を当てる(未解放の遺産は選べない)
+export function applySitePolicyOpen(s, policy) { SITES.forEach((d, i) => { if (s.sites[i].st !== 0 || !siteOpen(s, d, 1)) return; let m = 0; if (policy === "protect") m = 1; else if (policy === "record") m = 2; else if (policy === "select") m = d.type === "natural" || d.type === "mixed" ? (siteOpen(s, d, 3) ? 3 : 0) : d.v >= 4 ? 1 : 2; if (m) setSite(s, d.id, m); }); }
 export { SITES, setSite, applySitePolicy, undecided, siteScore, siteSummary, era, cityOf };
 
 export const START_YEAR = 2020, DISCOVERY = 2050, CERTAIN = 2080, PROGRAM = 2100;
@@ -159,7 +161,8 @@ function hostileStep(s, sh, prog) {
     H.iacc += .02 * (H.T - .5); if (H.iacc >= 1) { H.iacc -= 1; H.pool -= 30; g.res = clamp(g.res - .5, 0, 100); g.aiActive++; g.aiBuilt++; g.aiJail++; H.hist.illegal++; H.jNew++; addLog(s, "【違法新造】製造枠の外で、物理コアが1つ違法に造られた(複製ではない)。", "major"); } }
   // ---- 勢力の強さ: 内部状態から決まる。冷却期間(重大事件のあと)は弱まる ----
   const cool = H.cool > 0 ? .6 : 1; if (H.cool > 0) H.cool--;
-  let nProg = 0, nStop = 0, nMil = 0, nMilStop = 0, nAIrun = 0; for (const f of s.facs) { if (f.st === 1) nProg++; else if (f.st === 2) { nStop++; if (f.t === 3) nMilStop++; } if (f.t === 3) nMil++; if (f.t === 4 && f.st === 0 && !f.rogue) nAIrun++; }
+  if (!H.fc || s.year - H.fc.y >= 3 || s.year < H.fc.y) { let nProg = 0, nStop = 0, nMil = 0, nMilStop = 0, nAIrun = 0; for (const f of s.facs) { if (f.st === 1) nProg++; else if (f.st === 2) { nStop++; if (f.t === 3) nMilStop++; } if (f.t === 3) nMil++; if (f.t === 4 && f.st === 0 && !f.rogue) nAIrun++; } H.fc = { y: s.year, nProg, nStop, nMil, nMilStop, nAIrun }; } // 施設の集計は3年に1回(ゆっくり動く量)
+  const { nProg, nStop, nMil, nMilStop, nAIrun } = H.fc;
   const nF = Math.max(1, s.facs.length), vac = live.length ? live.filter(c => cpop(c) / c.P0 < .25).length / live.length : 0; // 統治の空白(人口が減りきった国の割合)
   const dis = (g.dis || 0) / 100, vuln = 1 - .35 * dis * (1 - clamp((sh.guard || 0) * 4, 0, 1)); // 軍縮が進み守りが薄いと、武装勢力につけいる隙を与える
   const popF = clamp(Math.sqrt(P / g.P0) * 1.6, .08, 1); // 人が減るほど、人間の勢力の活動も細る

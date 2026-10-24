@@ -182,14 +182,14 @@ function head() {
   hourglasses();
   const un = S.autoLog.filter(a => !a.seen), imp = un.filter(a => a.important);
   const ab = $("autobtn"); ab.hidden = !S.autoLog.length; ab.textContent = `自動判断${un.length ? " 未確認" + un.length : ""}`; ab.classList.toggle("alert", imp.length > 0);
-  renderObs(); lockTabs(); mainStat(); syncPrelude();
+  renderObs(); lockTabs(); tabMarks(); mainStat(); syncPrelude();
   const l = S.log[S.log.length - 1]; $("ticker").textContent = imp.length ? `⚠ 重要な自動判断: ${imp[imp.length - 1].title}→「${imp[imp.length - 1].label}」(タップで確認)` : l ? `${l.y} ${l.t}` : "";
 }
 const bar = (v) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
 
 
 // ---------- メイン画面: 世界地図+レーダーチャート / 助走期間の制限 ----------
-let fillCache = {}, saveT = 0, mainT = 0, mainY = 0, markSig = "", svgW = 0, mainKey = "", pictoDetail = null, cent = {}, resTimer = 0;
+let lastS = null, lastWinN = 0, fillCache = {}, saveT = 0, mainT = 0, mainY = 0, markSig = "", svgW = 0, mainKey = "", pictoDetail = null, cent = {}, resTimer = 0;
 function lockTabs() {
   const pre = S.year < E.PROGRAM; for (const t of ["policy", "sites"]) { const b = document.querySelector(`#tabs [data-t=${t}]`); if (b) b.hidden = pre; }
   if (pre && (tab === "policy" || tab === "sites")) show("map");
@@ -246,6 +246,13 @@ function radar(m, tr) {
   const lb = I.METRICS.map(([k, name], i) => { const [x, y] = pt(i, R + 14); const t = tr ? (tr[k] > .5 ? "▲" : tr[k] < -.5 ? "▼" : "→") : ""; return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${name}${m[k].toFixed(0)}${t}</text>`; }).join("");
   return `<svg class="radar" viewBox="0 0 240 170" width="100%" role="img" aria-label="7つの指標">${ax}<polygon class="poly" points="${poly}"/>${lb}</svg>`;
 }
+const MN9 = { pop: "人口", happy: "幸福", safety: "安全性", env: "環境", res: "資源", ai: "AI", her: "遺産" };
+function epCard() {
+  const w = S.w9; if (!w || S.year < E.PROGRAM) return "";
+  const act = w.ep.map(e => { const d = E.EPISODES[e.id]; return `<div class="ep ${d.kind}"><b>${d.kind === "bad" ? "▲" : "△"} ${d.name}</b>(〜${e.until}年) <span class="small">影響: ${d.m.map(k => MN9[k]).join("・")}</span><div class="small">${e.cause}</div></div>`; }).join("");
+  const wr = (w.warns || []).slice(0, 2).map(x => `<div class="small warn">予兆: ${x}</div>`).join("");
+  return `<h3>世界の出来事(原因と影響)</h3>${act || '<div class="small">いま進行中の出来事はありません。</div>'}${wr}<div class="small dim">対処は方針タブの配分(終活支援・環境・守り・軍縮・集約)で変わります。累計: 悪い出来事${w.hist.bad}・良い出来事${w.hist.good}</div>`;
+}
 function statusView() {
   const g = S.g, ai = S.ai, m = I.metrics(S), bn = I.bottleneck(S), n = hourglassNumbers(S);
   const F = FACTYPES.map((T, t) => { const f = S.facs.filter(x => x.t === t); const c = [0, 0, 0, 0]; f.forEach(x => c[x.st]++); return `<span>${T.name}</span><span>${f.length} / 稼働${c[0]} 停止中${c[1]} 封鎖${c[2]}${c[3] ? ` 事故${c[3]}!` : ""}</span>`; }).join("");
@@ -253,6 +260,7 @@ function statusView() {
   $("status").innerHTML = preludeCard() + `<div class="card alert"><b>いまの最大のボトルネック: ${bn.name} (${bn.value.toFixed(0)})</b><div class="small">原因: ${bn.cause}</div></div>
   <h3>7つの指標(▲▼は今後10年の見込み)</h3><div id="radarbox2">${radar(m, trendCache && trendCache.year === S.year ? trendCache.d : null)}</div>
   <div class="small">${I.RELATIONS.map(r => `${r[0]}${r[1]}${r[2]}: ${r[3]}`).join("<br>")}</div>
+  ${epCard()}
   ${S.lastChoice ? `<h3>直近の判断の結果</h3><div class="card small"><b>${S.lastChoice.title}</b>「${S.lastChoice.label}」<br>即時の変化: ${S.lastChoice.diff}</div>` : ""}
   <h3>天文現象</h3><div class="kv"><span>強度</span><span>${g.astro.toFixed(2)} / ${ph}</span><span>AIコアの故障率</span><span>年${(fr * 100).toFixed(1)}%</span><span>累計の故障</span><span>${fmtN(g.aiFailed)}</span></div>
   <div class="small">強度は数百年かけて波打ちながら強まる。静穏期は出生の持ち直しや人口の停滞・回復の条件になり、活発期はコアの故障と出生の減少を招く。地域ごとに遮蔽の差がある。これらは作品固有の仮設定。</div>
@@ -275,7 +283,7 @@ function statusView() {
 }
 
 // ---------- 方針(進行モード・価値観・下書き→見込み→適用) ----------
-const CH_NOTE = { research: "短期:効果は薄い/長期:方舟の可能性とAIコアの遮蔽/時間差:数十年", care: "短期:幸福と希望が上がる/長期:穏やかな最期、出生の持ち直しにも寄与/副作用:資源を消費", decom: "短期:危険施設が減る/長期:事故の根を断つ/時間差:年単位で進む", stop: "短期:見えにくい/長期:機械を止められる/時間差:数十年", eco: "短期:緩やか/長期:自然の回復を早める", heritage: "短期:資源消費/長期:遺産が残る", wild: "短期:野生の福祉と生息地が改善/長期:絶滅を遅らせる(避けられない)/副作用:人類の終活に使える資源が減る" };
+const CH_NOTE = { disarm: "軍事施設の停止を進め、軍の予算・人員・技術を医療と輸送へ回す。資源と医療が改善し、社会が安定する/反面、国家間の不信で協定が崩れる恐れ・軍需産業の失業・武装勢力への守りの薄さ/数十年かけて効く", consol: "人口の減った地域を計画的に畳み、居住域と交通網を集める。輸送と維持の費用が減り、放棄地が自然に戻る/反面、強制的な移住への反発・地域文化の喪失・過密による感染症と災害の脆弱さ", research: "短期:効果は薄い/長期:方舟の可能性とAIコアの遮蔽/時間差:数十年", care: "短期:幸福と希望が上がる/長期:穏やかな最期、出生の持ち直しにも寄与/副作用:資源を消費", decom: "短期:危険施設が減る/長期:事故の根を断つ/時間差:年単位で進む", stop: "短期:見えにくい/長期:機械を止められる/時間差:数十年", eco: "短期:緩やか/長期:自然の回復を早める", heritage: "短期:資源消費/長期:遺産が残る", wild: "短期:野生の福祉と生息地が改善/長期:絶滅を遅らせる(避けられない)/副作用:人類の終活に使える資源が減る" };
 const MODE_DESC = { manual: "重要イベントごとに停止し、あなたが選ぶ。", semi: "国家・地域の人口減少に伴う縮退対応(都市の縮退・国家運営の委任・最後の学校・最後の街)だけ自動。それ以外は停止。", auto: "原則すべてのイベントと配分をAIが自動処理。理由と結果はログと「自動判断」に残る。" };
 function sumP(p) { return Math.max(1, Object.values(p).reduce((a, b) => a + (b || 0), 0)); }
 function ensureDraft() { if (!draft) draft = { policy: { ...S.policy }, sovMode: S.sovMode, machStance: S.machStance, focus: S.ai.focus, wildStance: S.wildStance, decomOrder: S.decomOrder || "hazard", hostPolicy: { ...(S.hostPolicy || E.HOST_POLICY_DEFAULT) } }; }
@@ -291,26 +299,50 @@ function hostPolicyHTML() {
   const fac = Object.entries(E.FACTIONS).map(([k, n]) => `<div class="abar"><span>${n.split("(")[0]}</span><div class="bar"><i style="width:${Math.round((H.str[k] || 0) * 100)}%"></i></div><b>${Math.round((H.str[k] || 0) * 100)}</b></div>`).join("");
   return `<div class="small">通常はこの方針と「治安・防衛・サイバー防御」の配分で自動的に対処し、重大な事件だけが判断を求めます。</div>${rows}<div class="sub">勢力の強さ(目的: 反対派=解体を止める / 武装勢力=資源と施設 / サイバー犯罪=管理の掌握 / 脱獄AI=自律)</div>${fac}<div class="small">${H.warn.length ? "予兆: " + H.warn.join(" / ") : "いまは目立った予兆はありません。"}</div><div class="small dim">累計: 妨害${H.hist.sabotage}件・再稼働${H.hist.restarts}件・施設の掌握${H.hist.seized}件(奪還${H.hist.regained})・遺産への攻撃${H.hist.heritage}件</div>`;
 }
+const chOpen = (k) => E.channelOpen(S, k), chSum = (p) => Math.max(1, E.CHANNELS.reduce((a, [k]) => a + (chOpen(k) ? (p[k] || 0) : 0), 0));
+function chRow(k, n, p, sum, fresh) {
+  const u = E.UNLOCKS.find(x => x.ch === k), open = chOpen(k), isNew = u && fresh.has(u.id);
+  if (!open) return `<div class="sl locked"><label><span>🔒 ${n}<span class="lk">未解放</span></span><span>—</span></label><div class="small">解放条件: ${u.why}</div></div>`;
+  return `<div class="sl"><label><span>${n}${isNew ? '<span class="nw">NEW</span>' : ""}</span><span id="pv_${k}">${((p[k] || 0) / sum * 100).toFixed(0)}%</span></label><input type="range" min="0" max="100" value="${p[k] || 0}" data-k="${k}" aria-label="${n}"><div class="small">${CH_NOTE[k]}</div></div>`;
+}
+function winBanner() {
+  const w = S.w9; if (!w || S.year < E.PROGRAM) return "";
+  if (S.mode !== "auto") return "";
+  if (w.win.open) return `<div class="card small winon"><b>● 変更機会</b>: ${w.win.until}年まで、方針と遺産の設定を変えられます。変えなければ今の方針のまま進みます。</div>`;
+  return `<div class="card small winoff"><b>全自動: いまは設定を変更できません</b><br>次の変更機会は${w.next}年ごろ(新しい機能が解放されたときも開きます)。それまでは今の方針で自動的に進みます。すぐ変えたいときは、進行モードを手動か半自動にしてください。</div>`;
+}
+const pct = (v) => Math.round(Math.max(0, Math.min(1, v)) * 100);
+function challengeHTML() {
+  if (!E.unlocked(S, "bt")) return `<h3>存続への挑戦</h3><div class="card small locked">🔒 未解放。解放条件: ${E.UNLOCKS.find(u => u.id === "bt").why}</div>`;
+  const st = E.btStatus(S);
+  const rows = st.map(d => `<div class="bt"><div class="nm"><span>${d.name}</span><span>${d.done ? "成功" : d.waiting ? "前提待ち" : Math.round(d.p) + "%"}</span></div>${bar(d.p)}<div class="small">${d.note}</div>${d.p >= 100 && !d.done ? `<div class="small">最終段階: 成功の確率は毎年とても小さい(いま${d.q ? (d.q * 100).toFixed(3) + "%/年" : "条件が不足で0"})。必要条件: ${d.hard.map(h => (h[1] ? "○" : "×") + h[0]).join("・")}</div>` : `<div class="small">${d.fails ? `失敗・中断${d.fails}回。` : ""}必要条件: ${d.hard.map(h => (h[1] ? "○" : "×") + h[0]).join("・")}</div>`}</div>`).join("");
+  return `<h3>存続への挑戦</h3><div class="card small">人類を終末から救う方法ではありません。研究・設備・エネルギー・人材・合意がそろい、遮蔽などの条件が満たされた年にだけ、ごく小さな確率で成功しえます。多くは失敗か中断に終わります。成功の場合は、特殊な未来として地球の外の推移を無期限に観測できます。</div>${rows}`;
+}
+function ecoHTML() {
+  const g = S.g; const rows = [["軍縮の進み", g.dis], ["協定の安定", (g.disAgr ?? 1) * 100], ["居住域・交通網の集約", g.cons], ["遮蔽された生活圏", (g.shel || 0) * 100], ["医療の水準", (g.med || 0) * 100], ["終末の受容", (g.accept || 0) * 100]];
+  return `<h3>世界の状態(長期の存続を決める要素)</h3><div class="small">資源の節約・医療・社会の秩序・環境・施設の維持が、互いに作用して存続の長さを決めます。固定のボーナスはありません。</div>${rows.map(([n, v]) => `<div class="kv"><span>${n}</span><span>${Math.round(v)}</span></div>${bar(v)}`).join("")}`;
+}
 function policyView() {
-  ensureDraft(); const prog = E.programActive(S), p = draft.policy, sum = sumP(p);
-  $("policy").innerHTML = `<h3>進行設定</h3>${progHTML()}
+  ensureDraft(); const prog = E.programActive(S), p = draft.policy, sum = chSum(p), fresh = new Set(E.newMarks(S, "policy").map(x => x.id)), ro = !E.canEdit(S);
+  $("policy").innerHTML = winBanner() + `<h3>進行設定</h3>${progHTML()}
   <details><summary>あなたの価値観(自動判断の基準)</summary>${prefBars()}</details>
-  <h3>資源配分</h3><div class="card small">${prog ? "管理リソースの配分。人口には直接触れられません。" : "2100年までは観察期。配分は2100年から効力を持ちます。"}変更は下書きで、見込みを見てから「適用」します。</div>${E.CHANNELS.map(([k, n]) => `<div class="sl"><label><span>${n}</span><span id="pv_${k}">${((p[k] || 0) / sum * 100).toFixed(0)}%</span></label><input type="range" min="0" max="100" value="${p[k] || 0}" data-k="${k}" aria-label="${n}"><div class="small">${CH_NOTE[k]}</div></div>`).join("")}
+  <h3>資源配分</h3><div class="card small">${prog ? "管理リソースの配分。人口には直接触れられません。" : "2100年までは観察期。配分は2100年から効力を持ちます。"}変更は下書きで、見込みを見てから「適用」します。</div>${E.CHANNELS.map(([k, n]) => chRow(k, n, p, sum, fresh)).join("")}
   <div class="row">${Object.entries({ balanced: "均衡", care: "終活重視", research: "研究重視", safety: "停止重視", legacy: "自然・遺産", wild: "野生保護" }).map(([k, n]) => `<button data-pre="${k}">${n}</button>`).join("")}</div>
   <h3>人類と大型哺乳類の土地の分け方</h3><div class="seg">${Object.entries(STANCE_NAME).map(([k, nm]) => `<button data-ws="${k}" class="${draft.wildStance === k ? "on" : ""}">${nm}</button>`).join("")}</div>
   <div class="small">野生優先: 生息地と生態系は守れるが、人類の幸福と資源を圧迫する。人類優先: 逆。どちらでも大型哺乳類の絶滅は避けられないが、最期までの福祉と時間が変わる。</div>
   <h3>停止の進め方</h3><div class="seg"><button data-sov="consent" class="${draft.sovMode === "consent" ? "on" : ""}">合意に基づく</button><button data-sov="override" class="${draft.sovMode === "override" ? "on" : ""}">強制停止</button></div>
   <div class="small">強制:短期は安全が早まる/長期は主権・信頼・社会の安定を損なう。</div>
   <h3>停止の順序</h3><div class="seg">${Object.entries(E.DECOM_ORDERS).map(([k, n]) => `<button data-do="${k}" class="${draft.decomOrder === k ? "on" : ""}">${n}</button>`).join("")}</div><div class="small">${{ hazard: "危険な施設から止める。発電も早く止まり、後の解体が遅くなる", ai: "AI施設を先に止める。機械が増えにくいが、解体を補う自動化も弱まる", mil: "軍事施設を先に止める。紛争の火種を減らす" }[draft.decomOrder]}</div>
-  <h3>敵対勢力への基本方針</h3>${hostPolicyHTML()}
+  <h3>敵対勢力への基本方針${fresh.has("hp") ? '<span class="nw">NEW</span>' : ""}</h3>${E.unlocked(S, "hp") ? hostPolicyHTML() : `<div class="card small locked">🔒 未解放。解放条件: ${E.UNLOCKS.find(u => u.id === "hp").why}</div>`}
   <h3>機械文明の方針</h3><div class="seg">${[["limit", "抑制"], ["std", "標準"], ["expand", "拡大"]].map(([k, n]) => `<button data-st="${k}" class="${draft.machStance === k ? "on" : ""}">${n}</button>`).join("")}</div>
   <div class="small">機械は施設の維持を担うが、増えるほど停止が難しい。新造は製造枠で制限され、コアは複製できない。コアの故障を補う力は方針で変わる(抑制では絞られる)。</div>
   <h3>AIの学習方針</h3><div class="seg">${[["ethics", "倫理"], ["world", "観測"], ["tech", "技術"]].map(([k, n]) => `<button data-f="${k}" class="${draft.focus === k ? "on" : ""}">${n}</button>`).join("")}</div>
+  ${challengeHTML()}${ecoHTML()}
   <h3>変更の見込み(現状維持との差)</h3><div id="pvbox" class="small">${dirty() ? "計算中…" : "変更なし"}</div>
   <div class="row" style="margin-top:8px"><button id="apply" ${dirty() ? "" : "disabled"}>この方針を適用</button><button id="revert" ${dirty() ? "" : "disabled"}>下書きを戻す</button></div>`;
   const q = (sel, fn) => $("policy").querySelectorAll(sel).forEach(fn);
   bindProg($("policy"));
-  q("input[type=range]", r => { r.oninput = () => { draft.policy[r.dataset.k] = +r.value; const s2 = sumP(draft.policy); for (const [k] of E.CHANNELS) $("pv_" + k).textContent = ((draft.policy[k] || 0) / s2 * 100).toFixed(0) + "%"; }; r.onchange = () => policyView(); });
+  q("input[type=range]", r => { r.oninput = () => { draft.policy[r.dataset.k] = +r.value; const s2 = chSum(draft.policy); for (const [k] of E.CHANNELS) if ($("pv_" + k)) $("pv_" + k).textContent = ((draft.policy[k] || 0) / s2 * 100).toFixed(0) + "%"; }; r.onchange = () => policyView(); });
   q("[data-pre]", b => b.onclick = () => { draft.policy = { ...E.PRESETS[b.dataset.pre] }; policyView(); });
   q("[data-sov]", b => b.onclick = () => { draft.sovMode = b.dataset.sov; policyView(); });
   q("[data-hp]", b => b.onclick = () => { const [k, v] = b.dataset.hp.split(":"); draft.hostPolicy[k] = v; policyView(); });
@@ -318,9 +350,10 @@ function policyView() {
   q("[data-st]", b => b.onclick = () => { draft.machStance = b.dataset.st; policyView(); });
   q("[data-f]", b => b.onclick = () => { draft.focus = b.dataset.f; policyView(); });
   q("[data-ws]", b => b.onclick = () => { draft.wildStance = b.dataset.ws; policyView(); });
-  $("apply").onclick = () => { S.policy = { ...draft.policy }; S.sovMode = draft.sovMode; S.machStance = draft.machStance; S.ai.focus = draft.focus; S.wildStance = draft.wildStance; S.decomOrder = draft.decomOrder; S.hostPolicy = { ...draft.hostPolicy }; S.lastChoice = { title: "方針の変更", label: "新しい配分を適用", diff: "反映はこれから(時間差あり)" }; E.addLogPublic(S, "【方針】配分・停止の進め方・土地の分け方を変更した。", "choice"); policyView(); head(); };
+  $("apply").onclick = () => { if (!E.canEdit(S)) return; if (S.mode === "auto" && S.w9) S.w9.pLock = true; S.policy = { ...draft.policy }; S.sovMode = draft.sovMode; S.machStance = draft.machStance; S.ai.focus = draft.focus; S.wildStance = draft.wildStance; S.decomOrder = draft.decomOrder; S.hostPolicy = { ...draft.hostPolicy }; S.lastChoice = { title: "方針の変更", label: "新しい配分を適用", diff: "反映はこれから(時間差あり)" }; E.addLogPublic(S, "【方針】配分・停止の進め方・土地の分け方を変更した。", "choice"); policyView(); head(); };
   $("revert").onclick = () => { draft = null; policyView(); };
-  if (dirty()) setTimeout(() => {
+  if (ro) q("input[type=range],[data-pre],[data-sov],[data-hp],[data-do],[data-st],[data-f],[data-ws],#apply,#revert", x => { x.disabled = true; });
+  if (dirty() && !ro) setTimeout(() => {
     if (tab !== "policy" || !$("pvbox")) return;
     const r = I.previewPolicy(S, draft);
     $("pvbox").innerHTML = `<table class="pv"><tr><th></th>${I.METRICS.map(x => `<th>${x[1]}</th>`).join("")}</tr>${r.rows.map(x => `<tr><td>${x.h}年後</td>${I.METRICS.map(([k]) => { const d = x.alt[k] - x.cur[k]; return `<td>${Math.abs(d) < .5 ? "±0" : (d > 0 ? "+" : "−") + Math.abs(d).toFixed(0)}</td>`; }).join("")}</tr>`).join("")}</table><div class="small">現状維持との差(各指標0〜100、人口は2020年比%)。10年後=短期、40年後=長期の見込み。人口は直接操作できないため、幸福や安全性を通じた間接的な差。</div>`;
@@ -360,13 +393,13 @@ function onFlowOut(out) { if (out.autoDecisions > 0) obsNote = S.autoLog[S.autoL
 
 // ---------- 遺産 ----------
 function sitesView() {
-  const sm = E.siteSummary(S), und = E.undecided(S);
-  $("sites").innerHTML = `<div class="card small">世界遺産(実在)とゲーム独自の候補を扱います。<b>保護</b>=資源を使い続け実物を維持。<b>記録保存</b>=一度きりの費用で記録だけ残す(実物は朽ちる)。<b>自然還元</b>=自然に返す(環境に寄与、文化遺産は失われる)。登録年はおおよそで、「ゲーム独自候補」は実在の登録ではありません。</div>
+  const sm = E.siteSummary(S), und = E.undecided(S), ro = !E.canEdit(S), fresh = new Set(E.newMarks(S, "sites").map(x => x.id));
+  $("sites").innerHTML = winBanner() + (fresh.size ? `<div class="card small"><span class="nw">NEW</span> ${E.UNLOCKS.filter(u => fresh.has(u.id)).map(u => u.name).join("・")}が使えるようになりました。</div>` : "") + `<div class="card small">世界遺産(実在)とゲーム独自の候補を扱います。<b>保護</b>=資源を使い続け実物を維持。<b>記録保存</b>=一度きりの費用で記録だけ残す(実物は朽ちる)。<b>自然還元</b>=自然に返す(環境に寄与、文化遺産は失われる)。登録年はおおよそで、「ゲーム独自候補」は実在の登録ではありません。</div>
   <div class="kv"><span>保護 / 記録 / 還元 / 未決定</span><span>${sm.n[1]} / ${sm.n[2]} / ${sm.n[3]} / ${und}</span><span>遺産評価(総合)</span><span>${E.scores(S).heritage.toFixed(0)}</span></div>
   <div class="row" style="margin-top:6px"><button data-all="protect">未決定をすべて保護</button><button data-all="record">すべて記録</button><button data-all="select">自然は還し文化は選別</button></div>
-  ${SITES.map((d, i) => { const x = S.sites[i]; return `<div class="site"><div class="nm"><span>${d.name}</span><span class="badge">${TYPE_NAME[d.type]}</span></div><div class="small">${S.countries.find(c => c.id === d.cid)?.name || ""}${d.year ? " / 登録" + d.year + "年頃" : " / 実在の登録ではない"} / 価値${d.v} / 状態${(x.cond * 100).toFixed(0)}%${x.rec ? " / 記録済" : ""}</div><div class="seg">${[1, 2, 3].map(m => `<button data-s="${d.id}" data-m="${m}" class="${x.st === m ? "on" : ""}">${MODES[m]}</button>`).join("")}</div></div>`; }).join("")}`;
-  $("sites").querySelectorAll("[data-s]").forEach(b => b.onclick = () => { E.setSite(S, b.dataset.s, +b.dataset.m); sitesView(); });
-  $("sites").querySelectorAll("[data-all]").forEach(b => b.onclick = () => { E.applySitePolicy(S, b.dataset.all); sitesView(); });
+  ${SITES.map((d, i) => { const x = S.sites[i]; return `<div class="site"><div class="nm"><span>${d.name}</span><span class="badge">${TYPE_NAME[d.type]}</span></div><div class="small">${S.countries.find(c => c.id === d.cid)?.name || ""}${d.year ? " / 登録" + d.year + "年頃" : " / 実在の登録ではない"} / 価値${d.v} / 状態${(x.cond * 100).toFixed(0)}%${x.rec ? " / 記録済" : ""}</div><div class="seg">${[1, 2, 3].map(m => { const off = ro || !E.siteOpen(S, d, m); return `<button data-s="${d.id}" data-m="${m}" class="${x.st === m ? "on" : ""}" ${off ? "disabled" : ""}>${off && !ro ? "🔒" : ""}${MODES[m]}</button>`; }).join("")}</div>${!E.siteOpen(S, d, 1) ? `<div class="small dim">未解放: ${d.v === 3 && d.real ? E.UNLOCKS.find(u => u.id === "her_b").why : E.UNLOCKS.find(u => u.id === "her_c").why}</div>` : ""}</div>`; }).join("")}`;
+  $("sites").querySelectorAll("[data-s]").forEach(b => b.onclick = () => { if (!E.canEdit(S)) return; if (S.mode === "auto" && S.w9) S.w9.pLock = true; E.setSite(S, b.dataset.s, +b.dataset.m); sitesView(); });
+  $("sites").querySelectorAll("[data-all]").forEach(b => { b.disabled = ro; b.onclick = () => { if (!E.canEdit(S)) return; E.applySitePolicyOpen(S, b.dataset.all); sitesView(); }; });
 }
 
 // ---------- 年表(本文は白字。長い文は3行に要約し、タップで全文) ----------
@@ -682,7 +715,8 @@ function togglePause() { paused = !paused; head(); }
 function refresh(full) { head(); paintMap(); cardUpdate(); if (full || tab === "status") statusView(); if (full) { policyView(); sitesView(); logView(); sysView(); } }
 function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000); last = now;
-  const blocked = !$("modal").hidden && !big;
+  const winEdit = S.mode === "auto" && S.w9 && S.w9.win.open && (tab === "policy" || tab === "sites"); // 全自動の変更機会中に方針・遺産タブを開いている間は、時間を止める
+  const blocked = (!$("modal").hidden && !big) || winEdit;
   afterFrame(dt);
   const spd = preludeOn ? PRE_YPS : SPEEDS[speedIdx], fast = !preludeOn && spd >= 250;
   const out = session.frame(dt, { paused: preludeOn ? holdPrelude : paused, speed: spd, blocked, budgetMs: fast ? FAST_BUDGET_MS : 0 });
@@ -690,6 +724,8 @@ function frame(now) {
   // 高速進行中は画面の更新を間引く(計算の時間を確保する)。イベント・観察・自動判断のときは必ず更新する
   if (out.started || out.ended || out.autoDecisions || S.pending || (out.ticks && now - lastUi >= (fast ? UI_FAST_MS : spd >= 100 ? 100 : 0))) { lastUi = now; onFlowOut(out); head(); paintMap(); cardUpdate(); if (tab === "log") logView(); if (out.autoDecisions && tab === "status") statusView(); }
   else if (session.observing) renderObs();
+  if (S !== lastS) { lastS = S; lastWinN = S.w9 ? S.w9.win.n : 0; }
+  if (S.w9 && S.w9.win.n !== lastWinN) { lastWinN = S.w9.win.n; if (S.w9.win.open && !session.observing && !paused && !S.ended && !S.pending) { session.startObserve(); onFlowOut({ autoDecisions: 0 }); } head(); } // 変更機会が来たら、既存の観察停止の時間を使って知らせる
   if (S.ended && $("modal").hidden && !S.__endShown) { S.__endShown = true; modal(); head(); }
   else if (S.pending && !session.observing && shownKey !== S.pending.id + S.pending.year && !S.ended) { modal(); head(); } // 観察中に起きたイベントは保留し、終了後に1件ずつ表示する
   requestAnimationFrame(frame);
@@ -698,7 +734,10 @@ function frame(now) {
 function show(t) {
   tab = t; if (t === "map") setTimeout(() => paintMarkers(), 0); document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t)); document.querySelectorAll(".tab").forEach(s => s.classList.toggle("on", s.id === t));
   if (t === "status") statusView(); if (t === "policy") policyView(); if (t === "sites") sitesView(); if (t === "log") logView(); if (t === "sys") sysView();
+  if ((t === "policy" || t === "sites") && E.markSeen(S, t)) tabMarks();
 }
+// 新着の印: 新しい機能の解放と、全自動の変更機会。そのタブを開いて確認すると消える
+function tabMarks() { for (const t of ["policy", "sites"]) { const b = document.querySelector(`#tabs [data-t=${t}]`); if (!b) continue; const n = S.year >= E.PROGRAM ? E.newMarks(S, t).length : 0; b.classList.toggle("nw", n > 0); b.setAttribute("aria-label", n > 0 ? b.textContent + "(新着あり)" : b.textContent); } }
 
 loadSettings(); session = new Session(E, settings.observe);
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => show(b.dataset.t));
