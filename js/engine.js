@@ -2,6 +2,7 @@
 import { COUNTRY_DEFS, FACTYPES } from "./data.js";
 import { SITES, initSites, stepSites, siteScore, siteSummary, setSite, applySitePolicy, undecided } from "./heritage.js";
 import { cityNarratives, decadeNarrative, cityOf, era } from "./narrative.js";
+import { rnd } from "./rng.js";
 import { W9_DEFAULT, stepW9, channelOpen, askEvents, retroUnlock, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance, newMarks, markSeen, WIN, btStatus } from "./world9.js";
 import { GROUPS, WILDLAND, initMammals, mammalN0, mammalTotals, wildAlive, exposureOf, stepAstro, coreFailRate, stepMammals, ecoFunction, mammalScore } from "./life.js";
 export { GROUPS, mammalTotals, mammalScore, wildAlive, coreFailRate, ecoFunction };
@@ -26,12 +27,6 @@ export const PRESETS = {
 const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 
 // ---------- 乱数 ----------
-function rnd(s) { // mulberry32。状態をs.rngに保持
-  let t = (s.rng = (s.rng + 0x6D2B79F5) | 0);
-  t = Math.imul(t ^ (t >>> 15), t | 1);
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-}
 
 // ---------- 初期化 ----------
 export function newGame(seed = 1) {
@@ -113,7 +108,6 @@ export const cpop = (c) => c.y + c.a + c.o;
 // 国×施設種ごとの稼働割合を1回の走査で作る(国ごとに全施設を数え直さない)
 const NEED_ST = [3000, 1500, 30, 0];
 const frTable = (s) => { const n = s.countries.map(() => [0, 0, 0, 0, 0, 0]), r = s.countries.map(() => [0, 0, 0, 0, 0, 0]); for (const f of s.facs) { n[f.c][f.t]++; if (f.st === 0) r[f.c][f.t]++; } return (ci, t) => n[ci][t] ? r[ci][t] / n[ci][t] : 0; };
-const fracRun = (s, ci, t) => { let n = 0, r = 0; for (const f of s.facs) if (f.c === ci && f.t === t) { n++; if (f.st === 0) r++; } return n ? r / n : 0; };
 
 // ---------- 年次更新 ----------
 // 停止順序: hazard=危険の大きいものから / ai=AI施設を先に(機械文明を抑える代わりに自動化の補いが減る) / mil=軍事を先に
@@ -140,6 +134,14 @@ export const hostInit = () => ({ T: .05, K: 0, ctrl: 0, def: .1, pool: 20, iacc:
   fac: { opp: { pool: 10 }, raid: { pool: 10 }, cyb: { pool: 10 }, rog: { pool: 5 } }, str: { opp: 0, raid: 0, cyb: 0, rog: 0 }, warn: [],
   hist: { conflict: 0, attacks: 0, cyber: 0, jail: 0, illegal: 0, isolated: 0, heritage: 0, wild: 0, sabotage: 0, lostProg: 0, restarts: 0, seized: 0, regained: 0, stopSabotage: 0 } });
 const FCOST = { opp: 12, raid: 16, cyb: 20, rog: 10 };
+// 年のはじめの施設の集計。stepYear が数えた値を使い、無ければ(単独で呼ばれたとき)数え直す
+function factCounts(s) {
+  const f = s.g.fc; if (f && f.y === s.year) return f;
+  const c = { y: s.year, nMil: 0, nMilRun: 0, nMilStop: 0, nProg: 0, nStop: 0, nAIrun: 0, nSp: 0, nSpRun: 0 };
+  for (const fa of s.facs) { const st = fa.st, ft = fa.t; if (st === 1) c.nProg++; else if (st === 2) c.nStop++; if (ft === 3) { c.nMil++; if (st === 0) c.nMilRun++; else if (st === 2) c.nMilStop++; } else if (ft === 4) { if (st === 0 && !fa.rogue) c.nAIrun++; } else if (ft === 5) { c.nSp++; if (st === 0) c.nSpRun++; } }
+  return c;
+}
+export { factCounts };
 function hostileStep(s, sh, prog) {
   const g = s.g, H = s.host, P = Math.max(1, total(s)), live = s.countries.filter(c => !c.extinct), ph = prog ? 1 : .3, hp = s.hostPolicy || HOST_POLICY_DEFAULT;
   const wm = (f) => live.reduce((a, c) => a + f(c) * cpop(c), 0) / P;
@@ -149,7 +151,7 @@ function hostileStep(s, sh, prog) {
   // 基本方針の費用: 厳重な防衛と警備は資源を、サイバー対策は物流の細かな余裕を、対話は時間(解体の進み)を使う
   if (prog) { if (hp.defense === "strong") g.res = clamp(g.res - .012, 0, 100); if (hp.cyber === "high") g.res = clamp(g.res - .006, 0, 100); if (hp.diplomacy === "dialogue") g.res = clamp(g.res - .004, 0, 100); if (hp.diplomacy === "firm") for (const c of live) c.unrest = clamp(c.unrest + .0006, 0, 1); }
   H.T = clamp(H.T + (clamp(.7 * U + .3 * scarcity + .3 * distrust, 0, 1) * (1 - .6 * deesc) * (hp.diplomacy === "dialogue" ? .85 : 1) - H.T) * .06 - deesc * .03 * H.T, 0, 1);
-  let mil = 0, milAll = 0; for (const f of s.facs) if (f.t === 3) { milAll++; if (f.st === 0) mil++; } const milFrac = milAll ? mil / milAll : 0;
+  const fc0 = factCounts(s), milFrac = fc0.nMil ? fc0.nMilRun / fc0.nMil : 0;
   const K0 = H.K; H.K = clamp(H.K + .35 * Math.max(0, H.T - .3) * (.4 + .6 * milFrac) * (1 - deesc) - (.08 + .2 * deesc) * H.K, 0, 1);
   if (K0 < .4 && H.K >= .4) { H.hist.conflict++; addLog(s, `【武力衝突】国家間の緊張(${(H.T * 100).toFixed(0)})が高まり、武力衝突が広がり始めた。`, "major"); }
   H.def = clamp(H.def - .002 + gs * .02, .05, .95);
@@ -164,8 +166,7 @@ function hostileStep(s, sh, prog) {
     H.iacc += .02 * (H.T - .5); if (H.iacc >= 1) { H.iacc -= 1; H.pool -= 30; g.res = clamp(g.res - .5, 0, 100); g.aiActive++; g.aiBuilt++; g.aiJail++; H.hist.illegal++; H.jNew++; addLog(s, "【違法新造】製造枠の外で、物理コアが1つ違法に造られた(複製ではない)。", "major"); } }
   // ---- 勢力の強さ: 内部状態から決まる。冷却期間(重大事件のあと)は弱まる ----
   const cool = H.cool > 0 ? .6 : 1; if (H.cool > 0) H.cool--;
-  if (!H.fc || s.year - H.fc.y >= 3 || s.year < H.fc.y) { let nProg = 0, nStop = 0, nMil = 0, nMilStop = 0, nAIrun = 0; for (const f of s.facs) { if (f.st === 1) nProg++; else if (f.st === 2) { nStop++; if (f.t === 3) nMilStop++; } if (f.t === 3) nMil++; if (f.t === 4 && f.st === 0 && !f.rogue) nAIrun++; } H.fc = { y: s.year, nProg, nStop, nMil, nMilStop, nAIrun }; } // 施設の集計は3年に1回(ゆっくり動く量)
-  const { nProg, nStop, nMil, nMilStop, nAIrun } = H.fc;
+  const { nProg, nStop, nMil, nMilStop, nAIrun } = fc0;
   const nF = Math.max(1, s.facs.length), vac = live.length ? live.filter(c => cpop(c) / c.P0 < .25).length / live.length : 0; // 統治の空白(人口が減りきった国の割合)
   const dis = (g.dis || 0) / 100, vuln = 1 - .35 * dis * (1 - clamp((sh.guard || 0) * 4, 0, 1)); // 軍縮が進み守りが薄いと、武装勢力につけいる隙を与える
   const popF = clamp(Math.sqrt(P / g.P0) * 1.6, .08, 1); // 人が減るほど、人間の勢力の活動も細る
@@ -233,7 +234,12 @@ function stepYear(s) {
 
   // 施設の維持と事故
   const nc = s.countries.length, needArr = new Float64Array(nc).fill(1), cntN = new Int32Array(nc * 6), cntR = new Int32Array(nc * 6);
-  for (const fa of s.facs) { needArr[fa.c] += NEED_ST[fa.st]; const ix = fa.c * 6 + fa.t; cntN[ix]++; if (fa.st === 0) cntR[ix]++; }
+  const fc = g.fc = { y: yr, nMil: 0, nMilRun: 0, nMilStop: 0, nProg: 0, nStop: 0, nAIrun: 0, nSp: 0, nSpRun: 0 }; // 年のはじめの施設の集計(敵対勢力・世界の出来事も共有する。1年に1回だけ数える)
+  for (const fa of s.facs) {
+    const st = fa.st, ft = fa.t; needArr[fa.c] += NEED_ST[st]; const ix = fa.c * 6 + ft; cntN[ix]++; if (st === 0) cntR[ix]++;
+    if (st === 1) fc.nProg++; else if (st === 2) fc.nStop++;
+    if (ft === 3) { fc.nMil++; if (st === 0) fc.nMilRun++; else if (st === 2) fc.nMilStop++; } else if (ft === 4) { if (st === 0 && !fa.rogue) fc.nAIrun++; } else if (ft === 5) { fc.nSp++; if (st === 0) fc.nSpRun++; }
+  }
   const FR = (ci, t) => { const ix = ci * 6 + t; return cntN[ix] ? cntR[ix] / cntN[ix] : 0; }; // 国×施設種ごとの稼働割合(1回の走査で作る)
   const run = { get: i => needArr[i] };
   for (let ci = 0; ci < s.countries.length; ci++) {
@@ -256,20 +262,26 @@ function stepYear(s) {
     c.logi = clamp(c.logi + (.5 * c.m + .3 * c.auto - .35 - .1 * (1 - c.en)) * .01, .1, .98);
     c.econ = econ;
   }
+  // 施設の維持と事故(国ごとの値は先に計算しておく。乱数の順序は従来どおり、施設1件につき1回)
+  const insB = ai.insight / 100 * .1 * (yr > 2040 ? 1 : 0), mE = new Float64Array(nc), sabF = new Float64Array(nc), unrF = new Float64Array(nc);
+  const prime = (ci) => { const c = s.countries[ci]; mE[ci] = clamp(c.m + insB, 0, 1); sabF[ci] = 1 + 1.5 * (c.sab || 0); unrF[ci] = 1 + 2 * c.unrest; };
+  for (let ci = 0; ci < nc; ci++) prime(ci);
+  let rs = s.rng;
   for (const fa of s.facs) {
-    const c = s.countries[fa.c], T = FACTYPES[fa.t];
-    if (fa.t === 4 && fa.st === 0) aiRun++; if (fa.t === 4) aiAll++;
-    if (fa.t === 5 && fa.st === 0) spaceRun++; if (fa.t === 5) spaceAll++;
-    if (fa.t === 3 && fa.st === 0) milRun++;
-    if (fa.st === 3) { g.pl += .02 * T.haz; continue; }
-    const mEff = clamp(c.m + ai.insight / 100 * .1 * (yr > 2040 ? 1 : 0), 0, 1);
-    if (fa.rogue) fa.safety = clamp(fa.safety - .004, .02, .97); // 管理を離れた施設は手入れされず劣化する
-    const age = fa.st === 2 ? .002 : .0015;
-    fa.safety = clamp(fa.safety + (fa.st === 2 ? (mEff >= .3 ? .0005 : -.001) : .03 * (mEff - .55) - age), .02, .97);
-    const k = fa.st === 0 ? 1 : fa.st === 1 ? .6 : .03;
-    const u1 = 1 - fa.safety, p = T.haz * .02 * (u1 * u1 * u1) * k * (1 + 2 * c.unrest * (fa.t === 3 ? 1 : 0)) * (1 + 1.5 * (c.sab || 0)); // 敵対勢力の破壊活動を受けた国の施設は、事故が起きやすい
-    if (rnd(s) < p) { const pre = fa.st; fa.st = 3; accident(s, fa, c, pre); }
+    const ft = fa.t, st = fa.st, ci = fa.c;
+    if (ft === 4) { aiAll++; if (st === 0) aiRun++; } else if (ft === 5) { spaceAll++; if (st === 0) spaceRun++; } else if (ft === 3 && st === 0) milRun++;
+    const haz = FACTYPES[ft].haz;
+    if (st === 3) { g.pl += .02 * haz; continue; }
+    const mEff = mE[ci];
+    let sf = fa.safety;
+    if (fa.rogue) sf = clamp(sf - .004, .02, .97); // 管理を離れた施設は手入れされず劣化する
+    sf = clamp(sf + (st === 2 ? (mEff >= .3 ? .0005 : -.001) : .03 * (mEff - .55) - .0015), .02, .97);
+    fa.safety = sf;
+    const k = st === 0 ? 1 : st === 1 ? .6 : .03, u1 = 1 - sf, p = haz * .02 * (u1 * u1 * u1) * k * (ft === 3 ? unrF[ci] : 1) * sabF[ci]; // 敵対勢力の破壊活動を受けた国の施設は、事故が起きやすい
+    rs = (rs + 0x6D2B79F5) | 0; let z = Math.imul(rs ^ (rs >>> 15), rs | 1); z ^= z + Math.imul(z ^ (z >>> 7), z | 61); // rnd(s)と同じ式(乱数の列は変えない)
+    if (((z ^ (z >>> 14)) >>> 0) / 4294967296 < p) { s.rng = rs; fa.st = 3; accident(s, fa, s.countries[ci], st); rs = s.rng; prime(ci); }
   }
+  s.rng = rs;
 
   g.aiRunC = { y: yr, n: aiRun };
   // 施設停止(終活プログラム)

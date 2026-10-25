@@ -3,9 +3,9 @@
 //
 // 【考え方】出来事は「状態から決まる発生率 → 予兆 → 影響(国・施設・人口・資源・環境) → 後遺症」の一続き。データ(EPISODES)を足すだけで増やせる。
 //  宗教・思想は名称で善悪を決めない。強制・搾取・医療拒否・相互扶助・共同体の維持といった具体的な行動と結果で扱う。
+import { rnd } from "./rng.js";
 const cl = (x, a, b) => x < a ? a : x > b ? b : x;
 const cpop = c => c.y + c.a + c.o;
-function rnd(s) { let t = (s.rng = (s.rng + 0x6D2B79F5) | 0); t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
 const log = (s, text, kind = "hist") => { s.log.push({ y: s.year, t: text, k: kind }); if (s.log.length > 1500) s.log.splice(0, 200); };
 const lose = (c, f) => { c.y *= 1 - f; c.a *= 1 - f; c.o *= 1 - f; };
 export const PROGRAM9 = 2100;
@@ -43,10 +43,10 @@ export function markSeen(s, tab) { const w = s.w9; if (!w) return false; let ch 
 function gather(s) {
   const g = s.g, live = []; let P = 0, U = 0, Hl = 0, Hp = 0, Cn = 0, Lg = 0, Hop = 0, old = 0, shrunk = 0;
   for (const c of s.countries) { if (c.extinct) continue; const p = cpop(c); if (p <= 0) continue; live.push(c); P += p; U += c.unrest * p; Hl += c.health * p; Hp += c.happy * p; Cn += c.consent * p; Lg += c.logi * p; Hop += c.hope * p; old += c.o; if (p / c.P0 < .5) shrunk++; }
-  const q = P || 1, w = s.w9; // 施設の集計は5年に1回で足りる(ゆっくり動く量)。毎年全施設を数えない
-  if (!w.fc || s.year - w.fc.y >= 5 || s.year < w.fc.y) { let nMil = 0, nMilStop = 0, nSp = 0, nSpRun = 0; for (const f of s.facs) { if (f.t === 3) { nMil++; if (f.st === 2) nMilStop++; } else if (f.t === 5) { nSp++; if (f.st === 0) nSpRun++; } } w.fc = { y: s.year, nMil, nMilStop, nSp, nSpRun }; }
-  const nMil = w.fc.nMil, nMilStop = w.fc.nMilStop;
-  return { live, spRatio: w.fc.nSp ? w.fc.nSpRun / w.fc.nSp : 0, P, pr: P / g.P0, U: U / q, Hl: Hl / q, Hp: Hp / q, Cn: Cn / q, Lg: Lg / q, Hop: Hop / q, oldShare: old / q, shrunk, nMil, nMilStop, milFrac: nMil ? nMilStop / nMil : 0, cons: (g.cons || 0) / 100 };
+  const q = P || 1, w = s.w9, fc = (s.g.fc && s.g.fc.y === s.year) ? s.g.fc : null; // 施設の集計は stepYear が年のはじめに数えたものを使う
+  const cnt = fc || (() => { const c = { nMil: 0, nMilStop: 0, nSp: 0, nSpRun: 0 }; for (const f of s.facs) { if (f.t === 3) { c.nMil++; if (f.st === 2) c.nMilStop++; } else if (f.t === 5) { c.nSp++; if (f.st === 0) c.nSpRun++; } } return c; })();
+  const nMil = cnt.nMil, nMilStop = cnt.nMilStop;
+  return { live, spRatio: cnt.nSp ? cnt.nSpRun / cnt.nSp : 0, P, pr: P / g.P0, U: U / q, Hl: Hl / q, Hp: Hp / q, Cn: Cn / q, Lg: Lg / q, Hop: Hop / q, oldShare: old / q, shrunk, nMil, nMilStop, milFrac: nMil ? nMilStop / nMil : 0, cons: (g.cons || 0) / 100 };
 }
 const wpick = (s, list, wf) => { let tot = 0; for (const c of list) tot += Math.max(1e-9, wf(c)); let r = rnd(s) * tot; for (const c of list) { r -= Math.max(1e-9, wf(c)); if (r <= 0) return c; } return list[list.length - 1]; };
 
@@ -217,7 +217,6 @@ export const BT = {
     soft: [["電力", (s, st) => st.live.length ? avg(st.live, c => Math.min(1, c.en)) : 0], ["健康", (s, st) => st.Hl], ["国家間の合意", (s, st) => st.Cn], ["静穏期である", s => s.g.lull || 0]] },
 };
 const avg = (a, f) => a.reduce((p, x) => p + f(x), 0) / Math.max(1, a.length);
-const spaceRatio = (s) => { let n = 0, r = 0; for (const f of s.facs) if (f.t === 5) { n++; if (f.st === 0) r++; } return n ? r / n : 0; };
 export const MIRACLE_KINDS = { space: "宇宙空間での存続", colony: "他天体での定住", upload: "意識の連続的な移行", med: "生命維持の飛躍" };
 // 最終段階の成功確率(1年あたり)。hardが1つでも欠ければ0
 export function miracleChance(s, st, key) {
