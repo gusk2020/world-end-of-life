@@ -522,6 +522,51 @@ console.log("■ 第10次: 3AI体制の画面");
   await c10.close();
 }
 
+console.log("■ 第11次: 境界線の地図・情報の整理・配分プリセット・色と保存");
+{
+  const c11 = await b.newContext({ viewport: { width: 360, height: 740 }, hasTouch: true }), q = await c11.newPage(); const e11 = []; q.on("pageerror", e => e11.push(e.message));
+  await q.addInitScript(() => { if (!localStorage.getItem("weol.settings")) localStorage.setItem("weol.settings", JSON.stringify({ introSeen: true, tutorialDone: true, observe: { sec: 0, style: "stop" } })); });
+  await q.goto(URL_); await q.waitForTimeout(500); await q.evaluate(() => window.__game.skipPrelude("blue")); await q.waitForTimeout(300);
+  await q.evaluate(() => { const g = window.__game, S = g.S, E = g.E; S.noEvents = true; if (!g.paused) g.togglePause(); while (S.year < 2160) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } g.refresh(true); });
+  const m = await q.evaluate(() => { const ps = [...document.querySelectorAll("#mapbox svg path")]; const fills = new Set(ps.filter(x => !x.closest(".pico, .ic")).map(x => getComputedStyle(x).fill)); const strokes = new Set(ps.map(x => x.getAttribute("stroke") || getComputedStyle(x).stroke)); return { layer: document.getElementById("layer").value, fills: [...fills], strokes: strokes.size, marks: document.querySelectorAll("#mapbox .mk, #mapbox circle").length, scan: /repeating-linear-gradient/.test(getComputedStyle(document.body, "::after").backgroundImage + getComputedStyle(document.getElementById("mapbox")).backgroundImage + [...document.styleSheets].map(ss => { try { return [...ss.cssRules].map(r => r.cssText).join(""); } catch { return ""; } }).join("")) }; });
+  ok(m.layer === "none" && m.fills.every(f => /rgba\(0, 0, 0, 0\)|none|transparent/.test(f)), `既定の地図は国の塗りつぶしなし・人口の分布なし(層=${m.layer} 塗り=${m.fills.join("|")})`);
+  ok(m.strokes >= 3, `3つの管轄は境界線の色で区別される(${m.strokes}色)`);
+  ok(m.scan, "走査線(CRTの横線)の見た目は残る");
+  const now = await q.evaluate(() => ({ t: document.getElementById("nowbox").textContent, hid: document.getElementById("nowbox").hidden, more: document.getElementById("mapmore").open, h: document.getElementById("tribox").getBoundingClientRect().height }));
+  ok(!now.hid && /人類/.test(now.t) && /方針/.test(now.t) && !now.more, "最初に見えるのは要点だけ(人類・資源・兆候・方針)。詳細は閉じている");
+  ok(await q.evaluate(() => /青|緑|橙|大西洋|ユーラシア|太平洋/.test(document.getElementById("whoami").textContent)), "いまの担当エリアと保存の世界が上部に出る");
+  // 配分: プリセットは合計100%、未解放は0のまま(変更機会を開いてから)
+  await q.evaluate(() => { const S = window.__game.S; S.w9.win.open = true; S.w9.win.from = S.year; S.w9.win.until = S.year + 80; S.w9.win.seen = S.w9.win.seenS = false; window.__game.refresh(true); });
+  await q.click("#tabs [data-t=policy]"); await q.waitForTimeout(200);
+  const rg = () => q.evaluate(() => { const r = [...document.querySelectorAll("#tune input[type=range]")]; return { tot: r.reduce((a, x) => a + +x.value, 0), lockedZero: r.filter(x => x.disabled).every(x => +x.value === 0), nLocked: r.filter(x => x.disabled).length, bad: r.some(x => !Number.isFinite(+x.value) || +x.value < 0) }; });
+  await q.evaluate(() => { document.getElementById("tune").open = true; });
+  const sums = []; for (const k of ["balanced", "life", "safe", "research"]) { await q.evaluate(k => { document.querySelector(`[data-pp=${k}]`).click(); document.getElementById("tune").open = true; }, k); await q.waitForTimeout(80); sums.push(await rg()); }
+  ok(sums.every(x => x.tot === 100 && x.lockedZero && !x.bad), `4つのプリセットは合計100%で、未解放の項目(${sums[0].nLocked}個)は0のまま(${sums.map(x => x.tot).join(",")})`);
+  const fine = await q.evaluate(() => { const a = [...document.querySelectorAll("#tune input[type=range]")].filter(x => !x.disabled)[0]; a.value = 60; a.dispatchEvent(new Event("input", { bubbles: true })); a.dispatchEvent(new Event("change", { bubbles: true })); return { v: +a.value, delta: document.getElementById("dlt")?.textContent || "" }; });
+  const fr = await rg(); ok(fr.tot === 100 && fine.v === 60 && !fr.bad && fr.lockedZero && fine.delta.length > 0, `微調整しても合計100%・未解放は0のまま・他の項目の変化が見える(${fine.delta.slice(0, 36)})`);
+  await q.evaluate(() => { const a = [...document.querySelectorAll("#tune input[type=range]")].filter(x => !x.disabled)[1]; a.value = 100; a.dispatchEvent(new Event("input", { bubbles: true })); a.dispatchEvent(new Event("change", { bubbles: true })); }); const er = await rg();
+  ok(er.tot === 100 && !er.bad && er.lockedZero, "ある項目を100%にしても、ほかが負やNaNにならず合計100%");
+  await q.evaluate(() => { const a = [...document.querySelectorAll("#tune input[type=range]")].filter(x => !x.disabled)[2]; a.value = 0; a.dispatchEvent(new Event("input", { bubbles: true })); a.dispatchEvent(new Event("change", { bubbles: true })); }); const zr = await rg(); ok(zr.tot === 100 && !zr.bad, "0%にしても合計100%(ゼロ割りなし)");
+  await q.evaluate(() => document.getElementById("apply").click()); await q.waitForTimeout(150);
+  ok(await q.evaluate(() => { const P = window.__game.S.policy; return Math.abs(Object.values(P).reduce((a, b) => a + b, 0) - 100) < 1e-6 && (P.guard || 0) >= 0; }), "適用すると実際の配分も合計100%になる(旧セーブの配分は適用するまで置き換わらない)");
+  ok(await q.evaluate(() => document.documentElement.scrollWidth <= 360), "360px幅で配分画面が横にはみ出さない");
+  // 色の選択: 確認画面なし・既存の世界は別名で残る
+  const sv = await q.evaluate(() => { const g = window.__game; g.saveActive && g.saveActive(); return Object.keys(localStorage).filter(k => k.startsWith("weol.world.")); });
+  await q.evaluate(() => { const g = window.__game; g.startNewWorld && g.startNewWorld(); }); await q.waitForTimeout(300);
+  await q.evaluate(() => window.__game.skipPrelude("blue")); await q.waitForTimeout(300);
+  const after = await q.evaluate(() => ({ keys: Object.keys(localStorage).filter(k => k.startsWith("weol.world.")), modal: document.getElementById("modal").hidden ? "" : document.getElementById("mbox").textContent }));
+  ok(!/進める|前のデータに戻る/.test(after.modal), "最初の質問のあとに「進める／前のデータに戻る」の確認は出ない");
+  { // 既存の世界のある色を選ぶ: 確認なしで始まり、前の世界は別名で残る(上書きで消えない)
+    await q.evaluate(() => { const g = window.__game; g.saveActive && g.saveActive(); }); await q.waitForTimeout(100);
+    const before = await q.evaluate(() => { const k = Object.keys(localStorage).filter(x => /^weol\.world\.blue$/.test(x)); return { n: k.length, yr: (localStorage.getItem("weol.world.blue") || "").match(/"year":(\d+)/)?.[1] }; });
+    await q.evaluate(() => { const g = window.__game; g.startNewWorld && g.startNewWorld(); }); await q.waitForTimeout(300);
+    await q.evaluate(() => { const g = window.__game; g.finalQuestionDone && 0; g.pickColor(0); }); await q.waitForTimeout(500);
+    const aft = await q.evaluate(() => ({ baks: Object.keys(localStorage).filter(x => /^weol\.world\.blue\.bak/.test(x)), modal: document.getElementById("modal").hidden ? "" : document.getElementById("mbox").textContent }));
+    ok(before.n === 1 && (aft.baks.length >= 1 || !before.yr) && !/進める|前のデータに戻る/.test(aft.modal), `保存のある色を選ぶと、前の世界を別名で残して確認なしに始まる(別名${aft.baks.length}件・前は${before.yr}年)`);
+  }
+  ok(e11.length === 0, "第11次の画面でページエラーなし"); await c11.close();
+}
+
 console.log("エラー:", errs.length ? errs : "なし"); ok(errs.length === 0, "ページエラーなし");
 await p.screenshot({ path: process.env.SHOT || "/tmp/claude-0/ui360.png" });
 await b.close(); process.exit(fail ? 1 : 0);
