@@ -262,10 +262,10 @@ function radar(m, tr) {
 function triCard() {
   if (!S.tri) return S.year >= E.PROGRAM ? `<div class="card small">この世界は旧版のセーブ(単一のAI)として読み込まれています。3AI体制の機能は使えません。新しい世界を始めると3AI体制になります。</div>` : "";
   if (S.year < E.PROGRAM) return "";
-  const t = S.tri, me = t.ai[t.player], fc = E.triForecast(S), top = fc.items.slice(0, 2), tr = t.trace.slice(-3).reverse(), news = t.news.slice(-6).reverse();
+  const t = S.tri, me = t.ai[t.player], fc = E.triForecast(S), stopped = me.core === 0 ? '<div class="card small">あなたのAIのコアは、他のAIの合意で停止されました。この地域は人間の暫定組織が管理し、配分は変えられません。世界の観察は続けられます。</div>' : "", top = fc.items.slice(0, 2), tr = t.trace.slice(-3).reverse(), news = t.news.slice(-6).reverse();
   const bars = top.map(x => `<div class="kv"><span>${x.name}(推定)</span><span>${x.est < .5 ? "余裕あり" : x.est < .8 ? "兆候あり" : "限界に近い"} ±${(x.err * 100).toFixed(0)}</span></div>${bar(x.est * 100)}`).join("");
   const goal = `長期の目標: 人類を可能な限り長く存続させる(幸福・安全・自然・文化を犠牲にするだけの延命は別の帰結)。`;
-  return `<h3>${me.name}のAI(${{ blue: "青", green: "緑", orange: "橙" }[me.key]})</h3><div class="small">予測は予測、実績は実績として分けています。観測の精度 ${(fc.q * 100).toFixed(0)}%(研究と経験で上がる)。</div>
+  return stopped + `<h3>${me.name}のAI(${{ blue: "青", green: "緑", orange: "橙" }[me.key]})</h3><div class="small">予測は予測、実績は実績として分けています。観測の精度 ${(fc.q * 100).toFixed(0)}%(研究と経験で上がる)。</div>
   <div class="sub">崩壊の兆候(予測・揺らぎあり)</div>${bars}
   <div class="sub">実績</div><div class="kv"><span>崩壊した回数(自分のエリア)</span><span>${t.eq[t.player].n}</span><span>布石が効いた回数(世界)</span><span>${t.stat.saved}</span><span>人口移動(累計)</span><span>${(t.stat.migrants / 1e4).toFixed(0)}万人</span><span>援助/制裁/侵略</span><span>${t.stat.aid.toFixed(0)} / ${t.stat.sanctions || 0} / ${t.stat.wars}</span></div>
   ${tr.length ? `<div class="sub">過去の布石が効いた記録</div>${tr.map(x => `<div class="small">${x.y}年 ${x.text}</div>`).join("")}` : ""}

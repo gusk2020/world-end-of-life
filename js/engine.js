@@ -3,7 +3,7 @@ import { COUNTRY_DEFS, FACTYPES } from "./data.js";
 import { SITES, initSites, stepSites, siteScore, siteSummary, setSite, applySitePolicy, undecided } from "./heritage.js";
 import { cityNarratives, decadeNarrative, cityOf, era } from "./narrative.js";
 import { rnd } from "./rng.js";
-import { triPre, triStep, initTriad as initTriad0, shock as triShock, triSummary, forecast as triForecast, AREAS, AREA_OF, AREA_BY_COLOR, SUB as TRI_SUB, fairness as triFairness, contiguous as triContiguous, polOf as triPolOf, KEYS as TRI_KEYS } from "./triad.js";
+import { autoPolicyTri, triPre, triStep, initTriad as initTriad0, shock as triShock, triSummary, forecast as triForecast, AREAS, AREA_OF, AREA_BY_COLOR, SUB as TRI_SUB, fairness as triFairness, contiguous as triContiguous, polOf as triPolOf, KEYS as TRI_KEYS } from "./triad.js";
 import { W9_DEFAULT, stepW9, channelOpen, askEvents, retroUnlock, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance, newMarks, markSeen, WIN, btStatus } from "./world9.js";
 import { GROUPS, WILDLAND, initMammals, mammalN0, mammalTotals, wildAlive, exposureOf, stepAstro, coreFailRate, stepMammals, ecoFunction, mammalScore } from "./life.js";
 export { GROUPS, mammalTotals, mammalScore, wildAlive, coreFailRate, ecoFunction };
@@ -35,7 +35,7 @@ const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 export function newGame(seed = 1) {
   const s = {
     v: 3, seed, rng: seed | 0, year: START_YEAR, countries: [], facs: [], log: [], chosen: [],
-    host: hostInit(), hostPolicy: { ...HOST_POLICY_DEFAULT }, w9: W9_DEFAULT(), pending: null, done: {}, flags: {}, ended: null, hist: [], post: 0, mode: "manual", wildStance: "balanced", decomOrder: "hazard", autoLog: [], series: { h: [], a: [], m: [] }, mam: initMammals(),
+    host: hostInit(), hostPolicy: { ...HOST_POLICY_DEFAULT }, w9: W9_DEFAULT(), tri: null, pending: null, done: {}, flags: {}, ended: null, hist: [], post: 0, mode: "manual", wildStance: "balanced", decomOrder: "hazard", autoLog: [], series: { h: [], a: [], m: [] }, mam: initMammals(),
     ai: { cap: 10, insight: 10, align: 20, trust: 55, sp: 0.1, focus: "world" },
     g: { pl: 40, bio: 78, scar: 0, res: 100, her: 100, rsr: 0, ark: 0, mach: 5, stopReady: 0, gdp0: 0, P0: 0,
       arch: 0, accidents: 0, wars: 0, sov: 1, overrides: 0, hpAcc: 0, hpW: 0, peak: 0, unrestAcc: 0, unrestN: 0, lastC: null, lastYear: null,
@@ -300,14 +300,15 @@ function stepYear(s) {
     s.reach = s.countries.map(reachOf);
     s.coop = (1 - .4 * war) * (1 - s.w9.indiv);
     const hpo = s.hostPolicy || HOST_POLICY_DEFAULT, slow = (hpo.diplomacy === "dialogue" ? .94 : 1) * (1 - .3 * (s.host.str ? s.host.str.opp : 0)) * (s.host.slow > 0 ? .95 : 1); if (s.host.slow > 0) s.host.slow--;
+    const bucket = TT ? [[], [], []] : null; if (TT) for (const fa of s.facs) if (fa.st <= 1 && !fa.rogue) bucket[fa.rp ?? 0].push(fa); // 管理責任のAIごとに、停止の対象を1回の走査で分ける
     for (let gi = 0, nG = TT ? 3 : 1; gi < nG; gi++) {
     const shg = TT ? TT.shA[gi] : sh; // 3AI体制では、施設の管理責任を持つAIごとに解体の予算と順序が決まる
     let budget = flow * (TT ? TT.W[gi] : 1) * (shg.decom + .6 * shg.disarm) * .8 * (.7 + .3 * ai.cap / 100) * s.coop * slow; // 反対派の妨害・対話の時間・事件後の停滞が、解体の進みを遅らせる
     if (budget > 0) {
       // 優先度の高い順に予算が尽きるまで処理する。全件の整列はせず、ヒープで必要な分だけ取り出す(同点は施設の並び順=安定整列と同じ)
       const ks = [], fs = [];
-      for (const fa of s.facs) {
-        if (fa.st > 1 || fa.rogue || (TT && (fa.rp ?? 0) !== gi)) continue;
+      for (const fa of (TT ? bucket[gi] : s.facs)) {
+        if (fa.st > 1 || fa.rogue) continue;
         const c = s.countries[fa.c]; if (c.extinct || (c.pauseUntil || 0) > yr) continue;
         const need = fa.t === 3 ? (shg.disarm > 0 ? .5 : .75) : fa.t === 0 ? .6 : fa.t === 4 ? .65 : .45; // 軍縮の協定があれば、軍事施設の停止への合意は得やすい
         if (s.sovMode === "consent" && c.consent < need) continue;
@@ -854,6 +855,7 @@ export function epilogue(s, e, sc) {
   }[ob];
   out.push(obs);
   { const h = s.host && s.host.hist; if (h && (h.conflict || h.attacks || h.cyber || h.jail || h.illegal)) out.push(`敵対的な動き: 武力衝突${h.conflict}回、攻撃${h.attacks}件(遺産${h.heritage}・野生動物${h.wild})、不正侵入${h.cyber}件、AIの脱獄${h.jail}体・違法新造${h.illegal}体(隔離${h.isolated}体)。`); }
+  if (s.tri) { const T = s.tri, u = triSummary(s); out.push(`3つのAIの世界: ${u.map(a => `${a.name}${a.me ? "(あなた)" : ""}のコアは${a.core ? "最後まで稼働した" : "他のAIに停止された"}`).join("・")}。移住${Math.round(T.stat.migrants / 1e4)}万人・援助${T.stat.aid.toFixed(0)}・制裁${T.stat.sanctions || 0}回・侵略${T.stat.wars}回・責任の移管${T.stat.transfers}件。崩壊は${T.stat.slips}回(うち予備の蓄えが負荷を吸収した記録${T.stat.saved}回)。相互監視は拒否権${T.ov.vetoes}回・安全停止${T.ov.stops}回だった。`); }
   const kc = s.chosen.slice(-4).map(c => `${c.y}年「${c.ch}」`).join("、");
   out.push(`あなたの主な判断:${kc || "なし"}。`);
   return out;
@@ -999,6 +1001,7 @@ function autoPolicy(s) {
   const stance = run > .1 || vec.ai > .8 ? "std" : "limit", wst = vec.wild > .9 ? "wild" : vec.wild < .3 ? "human" : "balanced";
   const changed = Object.keys(np).some(k => Math.abs(np[k] - (s.policy[k] || 0)) >= 3) || sov !== s.sovMode || stance !== s.machStance || wst !== s.wildStance;
   { const H = s.host, thr = clamp((H.T - .3) + H.K + H.ctrl + g.aiJail / Math.max(10, g.aiActive), 0, 2); s.hostPolicy = { defense: thr > .6 ? "strong" : thr < .12 ? "light" : "std", diplomacy: vec.dignity > vec.safety * 1.1 ? "dialogue" : vec.safety > vec.dignity * 1.4 ? "firm" : "mid", cyber: H.ctrl > .2 || g.aiJail > 0 ? "high" : "std" }; } // 敵対勢力への基本方針も価値観と危険度で決める
+  if (s.tri) Object.assign(np, autoPolicyTri(s)); // 3AI体制: 全自動の配分も、AIの価値観・観測・学習で決める(ほかのAIと同じ仕組み)
   s.policy = np; s.sovMode = sov; s.machStance = stance; s.wildStance = wst;
   if (changed) addLog(s, `【自動方針】配分を更新: 施設停止${np.decom}%・終活支援${np.care}%・環境${np.eco}%・遺産${np.heritage}%・野生保護${np.wild}%・停止準備${np.stop}%・研究${np.research}%。根拠: 価値観(安全${vec.safety.toFixed(1)}・尊厳${vec.dignity.toFixed(1)}・自然${vec.nature.toFixed(1)}・AI存続${vec.ai.toFixed(1)})と現状の不足。`, "auto");
 }

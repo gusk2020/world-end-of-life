@@ -9,6 +9,7 @@
 import { rnd } from "./rng.js";
 const cl = (x, a, b) => x < a ? a : x > b ? b : x;
 const cpop = c => c.y + c.a + c.o;
+const LIAB_H = [1, .5, .6, .8, .2, .15];
 export const KEYS = ["research", "care", "decom", "stop", "eco", "heritage", "wild", "guard", "disarm", "consol"];
 export const AREAS = [
   { id: 0, key: "blue", name: "大西洋圏", note: "南北アメリカ・アフリカ。若い人口と資源、弱い医療と物流" },
@@ -51,6 +52,7 @@ export function contiguous(areaOf) {
 
 // ---------- 均衡モデル(臨界・連鎖・部分回復) ----------
 export const SUB = ["電力", "物流", "医療", "食料・資源", "秩序", "保守"];
+const LOAD_SCALE = 1.28; // 負荷の目盛り(通常の状態で余裕が小さく、ゆらぎで臨界に近づくように合わせた)
 const BASE_CAP = [[.80, .74, .70, .64, .82, .78], [.76, .80, .78, .78, .84, .62], [.84, .82, .66, .76, .86, .76]]; // エリアごとの長所と短所
 const THETA = [1.0, 1.0, 1.15, 1.05, 1.0, 1.0], RHO = [.12, .10, .06, .10, .08, .05], PHI = [.04, .05, .06, .03, .05, .08];
 const COUP = [[0, .35, .2, .1, 0, 0], [.15, 0, .3, .4, 0, 0], [0, 0, 0, .1, .3, 0], [0, 0, .2, 0, .5, 0], [0, .3, 0, 0, 0, .4], [.3, .15, 0, 0, .15, 0]]; // 崩壊した部分から別の部分への波及
@@ -108,6 +110,16 @@ const noiseAt = (s, a, k, seed) => { let h = (s.year * 73856093) ^ (a * 19349663
 const quality = (A) => cl(.35 * A.insight / 100 + .45 * Math.min(1, A.exp / 8) + .2 * Math.min(1, A.tech / 60), 0, .95);
 function decide(s, i, st, P) {
   const t = s.tri, A = t.ai[i]; if (A.core === 0 || i === t.player) return;
+  const pol = policyFor(s, i, st, P); A.policy = pol; A.decided = s.year; stance(s, i, st, P);
+}
+// 全自動のとき、主人公のAIも同じ判断の仕組み(自分の価値観・観測・学習)で配分を決める
+export function autoPolicyTri(s) {
+  const t = s.tri, st = areaStats(s), P = { liab: [0, 0, 0] };
+  for (const f of s.facs) { if (f.st === 3) continue; const h = [1, .5, .6, .8, .2, .15][f.t], k = f.st === 0 ? 1 : f.st === 1 ? 1.1 : .25; P.liab[f.rp ?? 0] += h * (1 - f.safety) * k * (f.t <= 1 ? 1.4 : .6); }
+  return policyFor(s, t.player, st, P);
+}
+function policyFor(s, i, st, P) {
+  const t = s.tri, A = t.ai[i];
   const o = st[i], q = quality(A), nz = (1 - q) * .35, g = (x) => x + (rnd(s) - .5) * nz;
   const eq = t.eq[i], stress = Math.max(...eq.x.map((x, k) => x / THETA[k])), lead = Math.max(t.ai[0].tech, t.ai[1].tech, t.ai[2].tech), gap = cl((lead - A.tech) / 40, 0, 1);
   const needS = cl(g(1 - o.logi * .5 - o.health * .3) , 0, 1), needD = cl(g(1 - o.happy), 0, 1), needN = cl((60 - s.g.bio) / 60 + (rnd(s) - .5) * nz, 0, 1);
@@ -120,7 +132,11 @@ function decide(s, i, st, P) {
   };
   let tot = 0; for (const k of KEYS) { raw[k] = Math.max(0, raw[k]) * Math.exp(A.w[k]) * (1 + (rnd(s) - .5) * .2); tot += raw[k]; }
   const pol = {}; for (const k of KEYS) pol[k] = Math.round(100 * raw[k] / Math.max(.01, tot));
-  A.policy = pol; A.decided = s.year;
+  return pol;
+}
+function stance(s, i, st, P) {
+  const t = s.tri, A = t.ai[i], o = st[i], q = quality(A), nz = (1 - q) * .35, g = (x) => x + (rnd(s) - .5) * nz;
+  const shrink = cl(g(1 - o.pop / Math.max(1, o.pop0)), 0, 1), threat = cl(g(s.host.T + s.host.K), 0, 1.5);
   // 他国との関わり方も価値観と経験から(固定の性格ではない)
   A.open = cl(.3 + .35 * A.val.dignity - .25 * A.val.safety + .2 * (1 - shrink) + (rnd(s) - .5) * .1, .05, .95);
   A.share = cl(.25 + .3 * A.val.dignity + .25 * q - .2 * A.val.growth + (rnd(s) - .5) * .1, .05, .95);
@@ -134,10 +150,10 @@ function learn(s, i, st) {
   const tot = KEYS.reduce((p, k) => p + (pol[k] || 0), 0) || 1, cur = Object.fromEntries(KEYS.map(k => [k, (pol[k] || 0) / tot]));
   if (A.prev !== null && A.snap) {
     A.recent.push(sc - A.prev); if (A.recent.length > 6) A.recent.shift();
-    const exp = A.recent.reduce((p, x) => p + x, 0) / A.recent.length, r = (sc - A.prev) - exp * .5; // 予想(最近の変化)との差
-    for (const k of KEYS) { const d = (A.snap[k] - .1); A.w[k] = cl(A.w[k] + 1.2 * r * d, -1.2, 1.2); }
+    const n = A.recent.length, exp = A.recent.reduce((p, x) => p + x, 0) / n, sd = Math.sqrt(A.recent.reduce((p, x) => p + (x - exp) * (x - exp), 0) / n), r = (sc - A.prev) - exp * .5, z = cl(r / Math.max(.015, sd), -3, 3); // 予想(最近の変化)との差を、ふだんのばらつきで割って評価する
+    for (const k of KEYS) { const d = (A.snap[k] - .1); A.w[k] = cl(A.w[k] + .3 * z * d, -1.2, 1.2); }
     const grp = { safety: ["decom", "stop", "guard"], dignity: ["care"], nature: ["eco"], heritage: ["heritage"], growth: ["research"], wild: ["wild"] };
-    for (const v in grp) { const c = grp[v].reduce((p, k) => p + A.snap[k], 0); A.val[v] = cl(A.val[v] + .6 * r * (c - .2), .1, 2); }
+    for (const v in grp) { const c = grp[v].reduce((p, k) => p + A.snap[k], 0); A.val[v] = cl(A.val[v] + .08 * z * (c - .2), .1, 2); }
     A.exp += .5;
   }
   A.prev = sc; A.snap = cur; A.learnY = s.year; A.score = sc;
@@ -159,7 +175,7 @@ function equilibrium(s, st, P, shA, W) {
     for (let k = 0; k < 6; k++) { let b = 0; for (const key in RES_W[k]) b += RES_W[k][key] * (sh[key] || 0); eq.r[k] = cl(eq.r[k] * .996 + .022 * b * (st[a].pop > 0 ? 1 : 0), 0, .3); }
     const carry = [0, 0, 0, 0, 0, 0];
     for (let k = 0; k < 6; k++) {
-      eq.sh[k] *= .985; ld[k] = Math.max(0, ld[k] - eq.sh[k]); eq.ld[k] = ld[k]; // 崩壊のあと、その部分の需要は縮む(別の安定状態へ)
+      eq.sh[k] *= .985; ld[k] = Math.max(0, ld[k] * LOAD_SCALE - eq.sh[k]); eq.ld[k] = ld[k]; // 崩壊のあと、その部分の需要は縮む(別の安定状態へ)
       const baseEff = eq.cap[k] * (1 - eq.l[k]), capEff = baseEff + eq.r[k], over = ld[k] - capEff, overNo = ld[k] - baseEff;
       if (over > 0) eq.x[k] += .35 * over + .02;
       else eq.x[k] = Math.max(0, eq.x[k] * (1 - RHO[k]) + over * RHO[k] * .1);
@@ -188,7 +204,7 @@ function trace(s, a, k, used, eq) {
 
 // ---------- 年次の相互作用 ----------
 export function triStep(s, flow, ctx) {
-  const t = s.tri, st = areaStats(s), P = ctx.P, shA = ctx.shA, W = ctx.W;
+  const t = s.tri, st = ctx.st, P = ctx.P, shA = ctx.shA, W = ctx.W; // 年のはじめの集計を使う(判断・移動・交易などは年のはじめの状態を見る)
   P.inflow = [0, 0, 0]; P.war = P.war || [0, 0, 0];
   // 資源の保存: 年の内の増減を、各エリアの消費の割合で配る
   const dg = s.g.res - ctx.res0, w2 = W[0] * W[0] + W[1] * W[1] + W[2] * W[2]; if (dg) { for (let a = 0; a < 3; a++) t.res[a] = cl(t.res[a] + dg * W[a] / w2, 0, 100); } // 重みつき平均が dg だけ動くように、消費の大きいエリアに多く配る
@@ -268,16 +284,18 @@ function conflict(s, st, P) {
   if (s.year < 2110) return;
   for (let a = 0; a < 3; a++) {
     const A = t.ai[a]; if (!A.core || A.aggr < .35 || rnd(s) > .1 * A.aggr) continue;
-    const b = [0, 1, 2].filter(x => x !== a && t.ai[x].core).sort((x, y) => (A.rel[x] - st[x].pop / Math.max(1, st[a].pop) * .3) - (A.rel[y] - st[y].pop / Math.max(1, st[a].pop) * .3))[0]; if (b === undefined) continue;
-    const grab = t.res[a] < 42 && t.res[b] > t.res[a] + 12 && A.aggr > .3, kind = (A.aggr > .5 || grab) && t.res[b] > 20 && st[a].pop > st[b].pop * .6 ? "invade" : "sanction"; // 資源が乏しい側が、豊かな隣を狙う
+    let b = [0, 1, 2].filter(x => x !== a && t.ai[x].core).sort((x, y) => (A.rel[x] - st[x].pop / Math.max(1, st[a].pop) * .3) - (A.rel[y] - st[y].pop / Math.max(1, st[a].pop) * .3))[0]; if (b === undefined) continue;
+    const grab = t.res[a] < 60 && t.res[b] > t.res[a] + 8 && A.aggr > .3, kind = (A.aggr > .5 || grab) && t.res[b] > 20 && st[a].pop > st[b].pop * .6 ? "invade" : "sanction"; // 資源が乏しい側が、豊かな隣を狙う
+    if (kind === "invade" && !adjArea(a, b)) { const nb = [0, 1, 2].find(x => x !== a && t.ai[x].core && adjArea(a, x)); if (nb === undefined) continue; b = nb; } // 侵略は隣り合う地域にだけ
     if (s.year - (t.last[a * 3 + b] ?? -99) < (kind === "invade" ? 30 : 20)) continue; t.last[a * 3 + b] = s.year; // 同じ相手への行動には間隔が空く
     if (!approved(s, a, b, kind === "invade" ? "限定的な侵略" : "制裁")) continue;
     A.rel[b] = cl(A.rel[b] - .25, -1, 1); t.ai[b].rel[a] = cl(t.ai[b].rel[a] - .35, -1, 1); A.dev = cl(A.dev + .1, 0, 1);
+    if (kind === "invade") t.stat.tryInv = (t.stat.tryInv || 0) + 1;
     if (kind === "sanction") { t.stat.sanctions = (t.stat.sanctions || 0) + 1; t.trade[a][b] = t.trade[b][a] = 0; t.eq[b].x[3] += .12; t.eq[a].x[3] += .05; P.war[b] += .1; note(s, `【制裁】${A.name}が${t.ai[b].name}への交易を止めた。互いに食料・資源の負荷が増える(依存が深いほど痛い)。`); continue; }
     // 侵略: 隣り合う地域の国を1つ取る。人口・施設・国境はそのまま、管理だけが移る。戦争には損失と反動が伴う
     const mine = new Set(s.countries.filter(c => (c.area ?? 0) === a).map(c => REGION_OF[c.id]));
     const cand = s.countries.filter(c => (c.area ?? 0) === b && !c.extinct && [...mine].some(r => adjacent(r, REGION_OF[c.id]))).sort((x, y) => cpop(y) * (y.def.dev + .3) - cpop(x) * (x.def.dev + .3));
-    if (!cand.length) continue; const c = cand[0], i = s.countries.indexOf(c), loss = .006 + .01 * rnd(s);
+    if (!cand.length) { t.stat.noCand = (t.stat.noCand || 0) + 1; continue; } const c = cand[0], i = s.countries.indexOf(c), loss = .006 + .01 * rnd(s);
     lose(c, loss); const lossAtk = loss * .3; for (const k of s.countries) if ((k.area ?? 0) === a && !k.extinct) lose(k, lossAtk * .1);
     c.area = a; for (const f of s.facs) if (f.c === i) f.rp = a; c.unrest = cl(c.unrest + .15, 0, 1); c.consent = cl(c.consent - .2, 0, 1);
     t.res[a] = cl(t.res[a] - 3, 0, 100); t.res[b] = cl(t.res[b] - 2, 0, 100); P.war[a] += .2; P.war[b] += .3; t.stat.wars++; t.eq[a].x[4] += .1; t.eq[b].x[4] += .2;
@@ -290,6 +308,7 @@ function approved(s, from, what, label) {
   if (!T3.core && !W2.core) return true;                                  // 承認者がいなければ制度が働かない(管理の空白)
   const collude = T3.rel[from] > .4 && W2.rel[from] > .25;                  // 談合: 2者が近いと3者目の拒否が通らない
   const veto = T3.core && T3.rel[from] < -.1 && rnd(s) < .5 + .3 * quality(T3);
+  if (label === "限定的な侵略") t.stat.invReq = (t.stat.invReq || 0) + 1;
   if (veto && !collude) { t.ov.vetoes++; t.ai[from].dev = cl(t.ai[from].dev + .05, 0, 1); note(s, `【拒否権】${T3.name}が${t.ai[from].name}の「${label}」を止めた。`); return false; }
   if (collude) { t.op.abuse += .05; if (label !== "責任の移管") note(s, `【談合の疑い】${t.ai[from].name}と${T3.name}の近さで、「${label}」の承認が緩んだ。`); }
   return true;
@@ -324,7 +343,8 @@ export function forecast(s, a = s.tri.player) {
 export function triPre(s, sh0, flow) { // stepYear の冒頭: 集計と混ぜ合わせた配分
   const t = s.tri, st = areaStats(s), pr = triPrep(s, sh0, flow, st);
   const P = { liab: [0, 0, 0], lab: [0, 0, 0], inflow: [0, 0, 0], war: (t._war || [0, 0, 0]).slice(), dep: [{ power: 0, logi: 0, food: 0 }, { power: 0, logi: 0, food: 0 }, { power: 0, logi: 0, food: 0 }] };
-  for (const f of s.facs) { if (f.st === 3) continue; const h = [1, .5, .6, .8, .2, .15][f.t], k = f.st === 0 ? 1 : f.st === 1 ? 1.1 : .25; P.liab[f.rp ?? 0] += h * (1 - f.safety) * k * (f.t <= 1 ? 1.4 : .6); }
+  if (!t._liab || s.year - t._liab.y >= 3 || s.year < t._liab.y) { const L = [0, 0, 0]; for (const f of s.facs) { if (f.st === 3) continue; L[f.rp ?? 0] += LIAB_H[f.t] * (1 - f.safety) * (f.st === 0 ? 1 : f.st === 1 ? 1.1 : .25) * (f.t <= 1 ? 1.4 : .6); } t._liab = { y: s.year, L }; } // 負債の集計は3年に1回(ゆっくり動く量)
+  for (let a = 0; a < 3; a++) P.liab[a] = t._liab.L[a];
   for (const c of s.countries) if (!c.extinct) P.lab[c.area ?? 0] += (c.a * .75) / 1e8;
   for (const k of KEYS) sh0[k] = pr.blend[k];
   return { ...pr, st, P, res0: s.g.res };

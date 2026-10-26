@@ -35,7 +35,7 @@ export function siteOpen(s, d, mode) {
   return d.real && d.v === 3 ? !!s.w9.unl.her_b : !!s.w9.unl.her_c;
 }
 // 全自動のときは変更の機会(window)の間だけ方針・遺産の設定を変えられる。手動・半自動はいつでも
-export const canEdit = (s) => s.mode !== "auto" || s.year < PROGRAM9 || !!(s.w9 && s.w9.win.open);
+export const canEdit = (s) => !(s.tri && s.tri.ai[s.tri.player].core === 0) && (s.mode !== "auto" || s.year < PROGRAM9 || !!(s.w9 && s.w9.win.open));
 export const WIN = { every: 300, len: 80, first: 2200 };
 export function newMarks(s, tab) { const w = s.w9; if (!w) return []; const out = UNLOCKS.filter(u => u.tab === tab && w.unl[u.id] && !w.seen[u.id]).map(u => ({ id: u.id, name: u.name, kind: "unlock" })); if (tab === "policy" && w.win.open && !w.win.seen) out.push({ id: "win", name: "方針の変更機会", kind: "win" }); if (tab === "sites" && w.win.open && !w.win.seenS) out.push({ id: "win", name: "遺産設定の変更機会", kind: "win" }); return out; }
 export function markSeen(s, tab) { const w = s.w9; if (!w) return false; let ch = false; for (const u of UNLOCKS) if (u.tab === tab && w.unl[u.id] && !w.seen[u.id]) { w.seen[u.id] = s.year; ch = true; } if (w.win.open) { if (tab === "policy" && !w.win.seen) { w.win.seen = true; ch = true; } if (tab === "sites" && !w.win.seenS) { w.win.seenS = true; ch = true; } } return ch; }

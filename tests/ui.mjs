@@ -498,6 +498,29 @@ console.log("■ 第9次: 政策の段階的解放・新着の印・全自動の
   ok(e9.length === 0, "第9次の画面でページエラーなし"); await c9.close();
 }
 
+console.log("■ 第10次: 3AI体制の画面");
+{
+  const c10 = await b.newContext({ viewport: { width: 360, height: 740 }, hasTouch: true }), q = await c10.newPage(); const e10 = []; q.on("pageerror", e => e10.push(e.message));
+  await q.addInitScript(() => localStorage.setItem("weol.settings", JSON.stringify({ introSeen: true, tutorialDone: true, observe: { sec: 0, style: "stop" } })));
+  await q.goto(URL_); await q.waitForTimeout(500); await q.evaluate(() => window.__game.skipPrelude("green")); await q.waitForTimeout(300);
+  await q.evaluate(() => { const g = window.__game, S = g.S, E = g.E; S.noEvents = true; if (!g.paused) g.togglePause(); while (S.year < 2160) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } g.refresh(true); });
+  const r = await q.evaluate(() => ({ rows: document.querySelectorAll("#tribox table.tri tr").length, me: document.querySelector("#tribox tr.me")?.textContent || "", over: document.documentElement.scrollWidth, strokes: new Set([...document.querySelectorAll("#svg path")].map(p => p.style.stroke).filter(Boolean)).size, tri: !!window.__game.S.tri, player: window.__game.S.tri.player }));
+  ok(r.tri && r.player === 1 && r.rows === 4 && /ユーラシア圏\(あなた\)/.test(r.me), "選んだ色(緑)が担当するAIになり、3つのAIの比較表に「あなた」が示される");
+  ok(r.strokes === 3, "地図は3つの管轄エリアを国境の色で示す(青・緑・橙)");
+  ok(r.over <= 360, "360px幅で横にはみ出さない(地図・比較表)");
+  const tb = await q.evaluate(() => { const t = document.querySelector("#tribox table"); const r2 = t.getBoundingClientRect(); return { w: r2.width, h: r2.height }; });
+  ok(tb.w <= 360 && tb.h < 120, `比較表は小さく収まる(${Math.round(tb.w)}×${Math.round(tb.h)}px)`);
+  ok(await q.evaluate(() => getComputedStyle(document.getElementById("tribox")).display !== "none") && !(await q.locator("#tabs [data-t=sites]").isVisible()), "遺産の画面は一時的に隠され、3AIの比較が見える");
+  await q.click("#tabs [data-t=status]"); await q.waitForTimeout(200);
+  const st = await q.textContent("#status");
+  ok(/崩壊の兆候/.test(st) && /予測は予測、実績は実績/.test(st) && /AI間の重要な交流/.test(st) && /長期の目標/.test(st), "状況タブに兆候(予測)・実績・AI間の交流・長期目標が出る");
+  await q.click("#tabs [data-t=policy]"); await q.waitForTimeout(200);
+  ok(/ユーラシア圏のAIの資源配分/.test(await q.textContent("#policy")) && !/土地の分け方/.test(await q.textContent("#policy")), "方針タブは自分のAIの配分。細かな管理画面は隠れる");
+  await q.evaluate(() => { const g = window.__game; g.S.mode = "auto"; g.setSpeed(4); if (g.paused) g.togglePause(); }); await q.waitForTimeout(1500);
+  ok((await q.evaluate(() => window.__game.S.year)) > 2165 && e10.length === 0, "×1000でも3AI体制が進行し、画面エラーがない");
+  await c10.close();
+}
+
 console.log("エラー:", errs.length ? errs : "なし"); ok(errs.length === 0, "ページエラーなし");
 await p.screenshot({ path: process.env.SHOT || "/tmp/claude-0/ui360.png" });
 await b.close(); process.exit(fail ? 1 : 0);
