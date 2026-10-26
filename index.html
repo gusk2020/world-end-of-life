@@ -24,19 +24,23 @@
   <div class="speed" id="speed">
     <button id="pause" aria-label="一時停止/再開">停止</button><button data-s="1">×25</button><button data-s="2">×100</button><button data-s="3">×250</button><button data-s="4">×1000</button>
   </div>
+  <div id="whoami" class="small"></div>
   <div id="spdlabel" class="small"></div>
   <div id="ticker" class="ticker" role="status"></div>
 </header>
 <main>
   <section id="map" class="tab on">
-    <div class="row"><select id="layer" aria-label="表示レイヤ"><option value="pop">人口</option><option value="happy">幸福度</option><option value="unrest">社会不安</option><option value="fac">稼働施設</option></select>
-      <button id="zin" aria-label="拡大">＋</button><button id="zout" aria-label="縮小">－</button><button id="zreset">全体</button></div>
+    <div class="row maprow"><button id="zin" aria-label="拡大">＋</button><button id="zout" aria-label="縮小">－</button><button id="zreset">全体</button></div>
     <div id="mapbox"><svg id="svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet"></svg></div>
     <div id="tribox" hidden></div>
-    <div id="mainstat"><div id="radarbox"></div><div id="pictobox"></div></div>
+    <div id="nowbox" class="card small" hidden></div>
+    <details id="mapmore"><summary>詳細を見る(7つの指標・危険・表示の切り替え)</summary>
+      <div class="row"><select id="layer" aria-label="表示レイヤ"><option value="none">境界のみ(塗らない)</option><option value="pop">人口</option><option value="happy">幸福度</option><option value="unrest">社会不安</option><option value="fac">稼働施設</option></select></div>
+      <div id="mainstat"><div id="radarbox"></div><div id="pictobox"></div></div>
+      <div id="legend" class="small"></div>
+    </details>
     <div id="afterbox" class="card" hidden></div>
     <div id="preludeline" class="small" hidden></div>
-    <div id="legend" class="small"></div>
     <div id="card" class="card"><span class="dim">国をタップすると詳細が表示されます</span></div>
   </section>
   <section id="status" class="tab"></section>

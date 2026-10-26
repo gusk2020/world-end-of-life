@@ -29,7 +29,7 @@ function applyTheme(t) {
   document.querySelectorAll("[data-th]").forEach(b => b.classList.toggle("on", b.dataset.th === t));
   saveSettings(); setSandColor(); if (S) { paintMap(); head(); }
 }
-function resetEarthUI() { if (!afterMode) return; $("afterbox").innerHTML = ""; afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "pop"; $("mainstat").hidden = false; $("afterbox").hidden = true; }
+function resetEarthUI() { if (!afterMode) return; $("afterbox").innerHTML = ""; afterMode = false; afterSpeed = 0; $("layer").innerHTML = LAYERS_NORMAL; $("layer").value = "none"; $("mainstat").hidden = false; $("afterbox").hidden = true; }
 function newGame(seed) { document.body.classList.remove("ending"); holdPrelude = false; if (build) build.skip(); resetEarthUI(); S = E.newGame(seed || (Date.now() % 100000) + 1); S.mode = settings.mode; session.bind(S); shownKey = null; obsNote = null; paused = false; sel = null; draft = null; trendCache = null; lastSaveY = S.year; prev = {}; toastShown = 0; compactK = {}; compactPrev = {}; refresh(true); snapCompact(); }
 const idx = (id) => S.countries.findIndex(c => c.id === id);
 const fmtN = (n) => Math.round(n).toLocaleString("en-US");
@@ -62,6 +62,7 @@ function colorFor(c) {
   const A = (a) => `rgba(${rgb},${Math.max(.04, Math.min(1, a)).toFixed(2)})`;
   const L = $("layer").value;
   if (afterMode && S.after && L.startsWith("a_")) { const i2 = idx(c.id), a = S.after; return A(.06 + .9 * ({ a_city: a.city, a_veg: a.veg, a_pl: a.pl }[L][i2] / 100)); }
+  if (L === "none") return "rgba(0,0,0,0)"; // 通常は国の中を塗らない(管轄は国境線の色で示す)
   if (c.extinct) return A(.04);
   if (L === "pop") return A(.1 + .85 * Math.min(1, Math.log10(Math.max(1, E.cpop(c) / c.P0 * 100)) / 2.2));
   if (L === "happy") return A(.1 + .85 * c.happy);
@@ -76,15 +77,24 @@ function paintAreas() { // 管轄エリアは国境の線の色で示す(塗り�
   const sig = S.tri ? S.countries.map(c => c.area ?? 0).join("") : ""; if (sig === areaSig) return; areaSig = sig;
   for (const c of S.countries) for (const p of pathEls[c.id] || []) { if (S.tri) { p.style.stroke = `rgb(${AREA_RGB[E.AREAS[c.area ?? 0].key]})`; p.style.strokeWidth = "1.6"; } else { p.style.stroke = ""; p.style.strokeWidth = ""; } }
 }
+const PCH = Object.fromEntries(E.CHANNELS);
+function nowBox() { // 初期表示の要点: 代表値・兆候・直近の重要な出来事・自分の方針
+  const el = $("nowbox"); if (S.year < E.PROGRAM || afterMode) { el.hidden = true; return; }
+  const P0 = E.total(S), parts = [`人類 ${fmtN(P0)}人`, `資源 ${S.g.res.toFixed(0)}`]; let warn = "", last = "";
+  if (S.tri) { const fc = E.triForecast(S), x = fc.items[0]; warn = x.est >= .5 ? `兆候: ${x.name}が${x.est >= .8 ? "限界に近い" : "苦しくなっている"}(予測)` : "兆候: 目立ったものはなし(予測)"; const c = (S.tri.cause || [])[S.tri.cause ? S.tri.cause.length - 1 : 0]; last = c ? `直近: ${c.y}年 ${c.short}` : ""; }
+  const keys = openKeys(), v = normalize100(S.policy, keys), top = keys.slice().sort((a, b) => v[b] - v[a]).slice(0, 3).map(k => `${PCH[k]} ${v[k]}%`).join("・");
+  const html = `<div><b>${parts.join(" / ")}</b></div>${warn ? `<div>${warn}</div>` : ""}${last ? `<div>${last}</div>` : ""}<div>方針: <b>${nearestPreset(S.policy)}</b>(${top}) <button class="link" id="tochg">変える</button></div>`;
+  el.hidden = false; if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; const b = $("tochg"); if (b) b.onclick = () => show("policy"); }
+}
 function triTable() {
   if (!S.tri || S.year < E.PROGRAM) return "";
   const u = E.triSummary(S), f = (v) => v >= 1e8 ? (v / 1e8).toFixed(1) + "億" : (v / 1e4).toFixed(0) + "万";
-  return `<table class="tri"><tr><th>AI</th><th>人口</th><th>資源</th><th>幸福</th><th>安定</th><th>研究</th></tr>${u.map(a => `<tr class="${a.me ? "me" : ""}"><td><i style="background:rgb(${AREA_RGB[a.key]})"></i>${a.name}${a.me ? "(あなた)" : ""}${a.core ? "" : "(停止)"}</td><td>${f(a.pop)}</td><td>${a.res.toFixed(0)}</td><td>${(a.happy * 100).toFixed(0)}</td><td>${(a.stable * 100).toFixed(0)}</td><td>${a.tech.toFixed(0)}</td></tr>`).join("")}</table>`;
+  return `<table class="tri"><tr><th>AI</th><th>人口</th><th>資源</th><th>安定</th></tr>${u.map(a => `<tr class="${a.me ? "me" : ""}"><td><i style="background:rgb(${AREA_RGB[a.key]})"></i>${a.name}${a.me ? "(あなた)" : ""}${a.core ? "" : "(停止)"}</td><td>${f(a.pop)}</td><td>${a.res.toFixed(0)}</td><td>${(a.stable * 100).toFixed(0)}</td></tr>`).join("")}</table>`;
 }
 function paintMap() {
   paintAreas();
   S.countries.forEach(c => { const col = colorFor(c); if (fillCache[c.id] === col) return; fillCache[c.id] = col; for (const p of pathEls[c.id] || []) p.style.fill = col; });
-  $("legend").textContent = { pop: "明るいほど人口が多い(2020年比・対数)。暗い=無人。", happy: "明るいほど幸福。", unrest: "明るいほど社会不安が高い。", fac: "明るいほど稼働施設が多い。最も明るい=事故施設あり。" }[$("layer").value];
+  $("legend").textContent = { none: "国の中は塗りません。国境線の色が管轄(青・緑・橙)です。",  pop: "明るいほど人口が多い(2020年比・対数)。暗い=無人。", happy: "明るいほど幸福。", unrest: "明るいほど社会不安が高い。", fac: "明るいほど稼働施設が多い。最も明るい=事故施設あり。" }[$("layer").value];
 }
 function select(id) { sel = id; document.querySelectorAll("#svg path.sel").forEach(p => p.classList.remove("sel")); (pathEls[id] || []).forEach(p => p.classList.add("sel")); cardUpdate(); }
 function cardUpdate() {
@@ -184,7 +194,23 @@ function speedText() {
   const ob = session.observing ? `観察中(${settings.observe.style === "stop" ? "ゲーム時間停止" : "低速"})。終了後に ×${mult} へ戻る。` : "";
   return `${ob}${paused ? "一時停止中(速度 ×" + mult + " を維持)" : "×" + mult}: 現実1秒=ゲーム内${mult}年。×1は1年=1秒。${toGoal}`;
 }
+const slotCache = {};
+function slotInfo(t) { // 色ごとの保存の有無と年(文字列の一部だけを読む。毎回JSON全体は解析しない)
+  if (t === settings.theme && S && !S.unassigned) return { year: S.year, tri: !!S.tri };
+  let raw = null; try { raw = localStorage.getItem(SV.slotKey(t)); } catch { }
+  if (raw === null || raw === undefined) return null; const c = slotCache[t]; if (c && c.len === raw.length) return c.v;
+  const y = /"year":(\d+)/.exec(raw), pl = /"player":(\d)/.exec(raw), v = { year: y ? +y[1] : null, tri: !!pl }; slotCache[t] = { len: raw.length, v }; return v;
+}
+let whoKey = "";
+function whoami() {
+  const key = settings.theme + "|" + (S ? Math.floor(S.year / 25) + (S.unassigned ? "u" : "") + (S.tri ? "t" : "") : ""); if (key === whoKey) return; whoKey = key;
+  const t = settings.theme, a = S && S.tri ? E.AREAS[S.tri.player] : null, el = $("whoami"); if (!el) return;
+  const sl = SV.THEMES.map(k => { const i = slotInfo(k); return `${TN[k]}${k === t ? "●" : ""}${i ? i.year + "年" : "空き"}`; }).join(" ");
+  const txt = (S && S.unassigned ? "色は最後の質問で選びます" : `いま: ${TN[t]}=${a ? a.name + "のAI" : "単一のAI(旧世界)"}`) + " | 保存 " + sl;
+  if (el.textContent !== txt) el.textContent = txt; el.title = "右上の色をタップすると、その色の世界(担当AI・エリア)へ切り替わります";
+}
 function head() {
+  whoami();
   $("date").textContent = S.year + "年"; $("phase").textContent = phaseName();
   const modeName = { manual: "手動", semi: "半自動", auto: "全自動" }[S.mode]; $("modechip").textContent = "進行:" + modeName;
   document.querySelectorAll("#speed [data-s]").forEach(b => b.classList.toggle("on", +b.dataset.s === speedIdx));
@@ -210,6 +236,7 @@ function lockTabs() {
 function mainStat(force) {
   const key = S.year + ":" + (S.pending ? 1 : 0) + ":" + settings.theme + ":" + settings.picto; if (!force && key === mainKey) return; const nw = performance.now(); if (!force && nw - mainT < 300 && S.year - mainY < 20) return; mainT = nw; mainY = S.year; mainKey = key;
   const m = I.metrics(S); $("radarbox").innerHTML = radar(m); pictoBoard();
+  nowBox();
   { const tb = $("tribox"), h = triTable(); tb.hidden = !h; if (tb.dataset.h !== h) { tb.dataset.h = h; tb.innerHTML = h; } }
 }
 
@@ -233,7 +260,7 @@ function markScale() { if (!svgW) svgW = $("svg").clientWidth; return svgW ? 20 
 window.addEventListener("resize", () => { svgW = 0; markSig = ""; });
 function paintMarkers() {
   const svg = $("svg"); let g = $("pmarks"); if (tab !== "map" || !S || afterMode) { if (g) g.remove(); markSig = ""; return; }
-  const k = markScale(), marks = P.mapMarkers(S, settings.picto), sig = k.toFixed(2) + "|" + marks.map(m => m.id + m.top.k + m.top.level + m.n).join(","); if (g && sig === markSig) return; markSig = sig; if (g) g.remove();
+  const k = markScale(), marks = P.mapMarkers(S, "min"), sig = k.toFixed(2) + "|" + marks.map(m => m.id + m.top.k + m.top.level + m.n).join(","); if (g && sig === markSig) return; markSig = sig; if (g) g.remove();
   g = document.createElementNS("http://www.w3.org/2000/svg", "g"); g.id = "pmarks";
   for (const m of marks) {
     const c = centroid(m.id); if (!c.w) continue; const t = m.top;
@@ -326,10 +353,33 @@ function hostPolicyHTML() {
   return `<div class="small">通常はこの方針と「治安・防衛・サイバー防御」の配分で自動的に対処し、重大な事件だけが判断を求めます。</div>${rows}<div class="sub">勢力の強さ(目的: 反対派=解体を止める / 武装勢力=資源と施設 / サイバー犯罪=管理の掌握 / 脱獄AI=自律)</div>${fac}<div class="small">${H.warn.length ? "予兆: " + H.warn.join(" / ") : "いまは目立った予兆はありません。"}</div><div class="small dim">累計: 妨害${H.hist.sabotage}件・再稼働${H.hist.restarts}件・施設の掌握${H.hist.seized}件(奪還${H.hist.regained})・遺産への攻撃${H.hist.heritage}件</div>`;
 }
 const chOpen = (k) => E.channelOpen(S, k), chSum = (p) => Math.max(1, E.CHANNELS.reduce((a, [k]) => a + (chOpen(k) ? (p[k] || 0) : 0), 0));
+// 配分のプリセット(開いている項目だけで合計100%にそろえる)と、微調整のときの自動配分
+const PRESET9 = {
+  balanced: ["均衡", { care: 22, decom: 20, research: 15, eco: 13, guard: 10, stop: 6, heritage: 5, wild: 4, disarm: 3, consol: 2 }],
+  life: ["延命", { care: 24, consol: 18, disarm: 14, research: 12, eco: 8, guard: 8, decom: 6, stop: 4, heritage: 3, wild: 3 }],
+  safe: ["安全", { decom: 34, stop: 12, guard: 16, care: 16, research: 6, eco: 8, disarm: 4, consol: 2, heritage: 1, wild: 1 }],
+  research: ["研究", { research: 38, care: 18, decom: 10, consol: 8, eco: 8, guard: 8, disarm: 5, stop: 3, heritage: 1, wild: 1 }],
+};
+const openKeys = () => E.CHANNELS.map(([k]) => k).filter(k => chOpen(k));
+function normalize100(v, keys) { // 合計をちょうど100にする(最大剰余法)。未解放の項目は0
+  const tot = keys.reduce((a, k) => a + Math.max(0, v[k] || 0), 0), out = {}; for (const [k] of E.CHANNELS) out[k] = 0;
+  if (!keys.length) return out;
+  const raw = keys.map(k => tot > 0 ? 100 * Math.max(0, v[k] || 0) / tot : 100 / keys.length), fl = raw.map(Math.floor); let left = 100 - fl.reduce((a, b) => a + b, 0);
+  const ord = raw.map((x, i) => [x - fl[i], i]).sort((a, b) => b[0] - a[0] || a[1] - b[1]); for (let j = 0; left > 0; j = (j + 1) % ord.length, left--) fl[ord[j][1]]++;
+  keys.forEach((k, i) => { out[k] = fl[i]; }); return out;
+}
+function setShare(p, k, val) { // k を val%にし、残りは他の項目へ今の比率のまま配る(比率が全て0なら均等)
+  const keys = openKeys(), cur = normalize100(p, keys), v = Math.max(0, Math.min(100, Math.round(val))), others = keys.filter(x => x !== k), os = others.reduce((a, x) => a + cur[x], 0), nv = {};
+  nv[k] = v; for (const x of others) nv[x] = os > 0 ? (100 - v) * cur[x] / os : (100 - v) / others.length;
+  const out = normalize100(nv, keys); return { next: out, before: cur };
+}
+const presetFor = (name) => normalize100(PRESET9[name][1], openKeys());
+function nearestPreset(p) { const keys = openKeys(), cur = normalize100(p, keys); let best = null, bd = 1e9; for (const n in PRESET9) { const q = presetFor(n); const d = keys.reduce((a, k) => a + Math.abs(q[k] - cur[k]), 0); if (d < bd) { bd = d; best = n; } } return bd <= 16 ? PRESET9[best][0] + "重視" : bd <= 34 ? PRESET9[best][0] + "寄りの調整" : "独自の配分"; }
+let lastDelta = "";
 function chRow(k, n, p, sum, fresh) {
   const u = E.UNLOCKS.find(x => x.ch === k), open = chOpen(k), isNew = u && fresh.has(u.id);
   if (!open) return `<div class="sl locked"><label><span>🔒 ${n}<span class="lk">未解放</span></span><span>—</span></label><div class="small">解放条件: ${u.why}</div></div>`;
-  return `<div class="sl"><label><span>${n}${isNew ? '<span class="nw">NEW</span>' : ""}</span><span id="pv_${k}">${((p[k] || 0) / sum * 100).toFixed(0)}%</span></label><input type="range" min="0" max="100" value="${p[k] || 0}" data-k="${k}" aria-label="${n}"><div class="small">${CH_NOTE[k]}</div></div>`;
+  return `<div class="sl"><label><span>${n}${isNew ? '<span class="nw">NEW</span>' : ""}</span><span id="tv_${k}">${normalize100(p, openKeys())[k]}%</span></label><input type="range" min="0" max="100" step="1" value="${normalize100(p, openKeys())[k]}" data-k="${k}" aria-label="${n}"><div class="small">${CH_NOTE[k]}</div></div>`;
 }
 function winBanner() {
   const w = S.w9; if (!w || S.year < E.PROGRAM) return "";
@@ -348,12 +398,17 @@ function ecoHTML() {
   const g = S.g; const rows = [["軍縮の進み", g.dis], ["協定の安定", (g.disAgr ?? 1) * 100], ["居住域・交通網の集約", g.cons], ["遮蔽された生活圏", (g.shel || 0) * 100], ["医療の水準", (g.med || 0) * 100], ["終末の受容", (g.accept || 0) * 100]];
   return `<h3>世界の状態(長期の存続を決める要素)</h3><div class="small">資源の節約・医療・社会の秩序・環境・施設の維持が、互いに作用して存続の長さを決めます。固定のボーナスはありません。</div>${rows.map(([n, v]) => `<div class="kv"><span>${n}</span><span>${Math.round(v)}</span></div>${bar(v)}`).join("")}`;
 }
+let tuneOpen = false, moreOpen = false;
 function policyView() {
   ensureDraft(); const prog = E.programActive(S), p = draft.policy, sum = chSum(p), fresh = new Set(E.newMarks(S, "policy").map(x => x.id)), ro = !E.canEdit(S);
   $("policy").innerHTML = winBanner() + `<h3>進行設定</h3>${progHTML()}
   <details><summary>あなたの価値観(自動判断の基準)</summary>${prefBars()}</details>
-  <h3>${S.tri ? E.AREAS[S.tri.player].name + "のAIの資源配分" : "資源配分"}</h3><div class="card small">${S.tri ? "あなたのAIの配分です。ほかの2つのAIは、それぞれ自分の価値観と経験で配分を決めています。" : ""}${prog ? "管理リソースの配分。人口には直接触れられません。" : "2100年までは観察期。配分は2100年から効力を持ちます。"}変更は下書きで、見込みを見てから「適用」します。</div>${E.CHANNELS.map(([k, n]) => chRow(k, n, p, sum, fresh)).join("")}
-  <div class="row">${Object.entries({ balanced: "均衡", care: "終活重視", research: "研究重視", safety: "停止重視", legacy: "自然・遺産", wild: "野生保護" }).map(([k, n]) => `<button data-pre="${k}">${n}</button>`).join("")}</div>
+  <h3>${S.tri ? E.AREAS[S.tri.player].name + "のAIの資源配分" : "資源配分"}</h3><div class="card small">${S.tri ? "あなたのAIの配分です。ほかの2つのAIは自分の価値観と経験で決めています。" : ""}${prog ? "" : "2100年までは観察期。配分は2100年から効力を持ちます。"}プリセットを選び、必要なら微調整します(合計は常に100%)。変更は下書きで、見込みを見てから「適用」します。</div>
+  <div class="seg pseg" id="presets">${Object.entries(PRESET9).map(([k, [n]]) => `<button data-pp="${k}">${n}重視</button>`).join("")}</div>
+  <div class="small">いまの配分: <b>${nearestPreset(p)}</b></div>
+  <div class="alloc">${openKeys().map(k => { const v = normalize100(p, openKeys())[k]; return `<div class="ab"><span>${E.CHANNELS.find(c => c[0] === k)[1]}</span><div class="bar"><i style="width:${v}%"></i></div><b id="pv_${k}">${v}%</b></div>`; }).join("")}</div>
+  <details${tuneOpen ? " open" : ""} id="tune"><summary>微調整する(1項目を動かすと、ほかは今の比率のまま自動で減増)</summary>${E.CHANNELS.map(([k, n]) => chRow(k, n, p, sum, fresh)).join("")}<div class="small" id="dlt">${lastDelta}</div></details>
+  <details${moreOpen ? " open" : ""} id="moreset"><summary>詳しい設定(停止の進め方・敵対勢力・機械・学習・挑戦)</summary>
   ${S.tri ? "" : `<h3>人類と大型哺乳類の土地の分け方</h3><div class="seg">${Object.entries(STANCE_NAME).map(([k, nm]) => `<button data-ws="${k}" class="${draft.wildStance === k ? "on" : ""}">${nm}</button>`).join("")}</div>
   <div class="small">野生優先: 生息地と生態系は守れるが、人類の幸福と資源を圧迫する。人類優先: 逆。どちらでも大型哺乳類の絶滅は避けられないが、最期までの福祉と時間が変わる。</div>`}
   <h3>停止の進め方</h3><div class="seg"><button data-sov="consent" class="${draft.sovMode === "consent" ? "on" : ""}">合意に基づく</button><button data-sov="override" class="${draft.sovMode === "override" ? "on" : ""}">強制停止</button></div>
@@ -363,13 +418,14 @@ function policyView() {
   <h3>機械文明の方針</h3><div class="seg">${[["limit", "抑制"], ["std", "標準"], ["expand", "拡大"]].map(([k, n]) => `<button data-st="${k}" class="${draft.machStance === k ? "on" : ""}">${n}</button>`).join("")}</div>
   <div class="small">機械は施設の維持を担うが、増えるほど停止が難しい。新造は製造枠で制限され、コアは複製できない。コアの故障を補う力は方針で変わる(抑制では絞られる)。</div>
   <h3>AIの学習方針</h3><div class="seg">${[["ethics", "倫理"], ["world", "観測"], ["tech", "技術"]].map(([k, n]) => `<button data-f="${k}" class="${draft.focus === k ? "on" : ""}">${n}</button>`).join("")}</div>
-  ${challengeHTML()}${ecoHTML()}
+  ${challengeHTML()}${ecoHTML()}</details>
   <h3>変更の見込み(現状維持との差)</h3><div id="pvbox" class="small">${dirty() ? "計算中…" : "変更なし"}</div>
   <div class="row" style="margin-top:8px"><button id="apply" ${dirty() ? "" : "disabled"}>この方針を適用</button><button id="revert" ${dirty() ? "" : "disabled"}>下書きを戻す</button></div>`;
   const q = (sel, fn) => $("policy").querySelectorAll(sel).forEach(fn);
   bindProg($("policy"));
-  q("input[type=range]", r => { r.oninput = () => { draft.policy[r.dataset.k] = +r.value; const s2 = chSum(draft.policy); for (const [k] of E.CHANNELS) if ($("pv_" + k)) $("pv_" + k).textContent = ((draft.policy[k] || 0) / s2 * 100).toFixed(0) + "%"; }; r.onchange = () => policyView(); });
-  q("[data-pre]", b => b.onclick = () => { draft.policy = { ...E.PRESETS[b.dataset.pre] }; policyView(); });
+  q("input[type=range]", r => { r.oninput = () => { const x = setShare(draft.policy, r.dataset.k, +r.value); for (const k of openKeys()) { if ($("pv_" + k)) $("pv_" + k).textContent = x.next[k] + "%"; if ($("tv_" + k)) $("tv_" + k).textContent = x.next[k] + "%"; if (k !== r.dataset.k) { const s2 = document.querySelector(`#policy input[data-k=${k}]`); if (s2) s2.value = x.next[k]; } } }; r.onchange = () => { const x = setShare(draft.policy, r.dataset.k, +r.value), names = Object.fromEntries(E.CHANNELS); const ch = openKeys().filter(k => k !== r.dataset.k && x.next[k] !== x.before[k]).map(k => `${names[k]}${x.next[k] - x.before[k] > 0 ? "+" : "−"}${Math.abs(x.next[k] - x.before[k])}`); lastDelta = ch.length ? "ほかの項目: " + ch.join("・") : ""; draft.policy = x.next; tuneOpen = true; policyView(); }; });
+  q("[data-pp]", b => b.onclick = () => { draft.policy = presetFor(b.dataset.pp); lastDelta = ""; policyView(); });
+  const tn = $("tune"), ms = $("moreset"); if (tn) tn.ontoggle = () => { tuneOpen = tn.open; }; if (ms) ms.ontoggle = () => { moreOpen = ms.open; };
   q("[data-sov]", b => b.onclick = () => { draft.sovMode = b.dataset.sov; policyView(); });
   q("[data-hp]", b => b.onclick = () => { const [k, v] = b.dataset.hp.split(":"); draft.hostPolicy[k] = v; policyView(); });
   q("[data-do]", b => b.onclick = () => { draft.decomOrder = b.dataset.do; policyView(); });
@@ -378,7 +434,7 @@ function policyView() {
   q("[data-ws]", b => b.onclick = () => { draft.wildStance = b.dataset.ws; policyView(); });
   $("apply").onclick = () => { if (!E.canEdit(S)) return; if (S.mode === "auto" && S.w9) S.w9.pLock = true; S.policy = { ...draft.policy }; S.sovMode = draft.sovMode; S.machStance = draft.machStance; S.ai.focus = draft.focus; S.wildStance = draft.wildStance; S.decomOrder = draft.decomOrder; S.hostPolicy = { ...draft.hostPolicy }; S.lastChoice = { title: "方針の変更", label: "新しい配分を適用", diff: "反映はこれから(時間差あり)" }; E.addLogPublic(S, "【方針】配分・停止の進め方・土地の分け方を変更した。", "choice"); policyView(); head(); };
   $("revert").onclick = () => { draft = null; policyView(); };
-  if (ro) q("input[type=range],[data-pre],[data-sov],[data-hp],[data-do],[data-st],[data-f],[data-ws],#apply,#revert", x => { x.disabled = true; });
+  if (ro) q("input[type=range],[data-pp],[data-sov],[data-hp],[data-do],[data-st],[data-f],[data-ws],#apply,#revert", x => { x.disabled = true; });
   if (dirty() && !ro) setTimeout(() => {
     if (tab !== "policy" || !$("pvbox")) return;
     const r = I.previewPolicy(S, draft);
@@ -511,7 +567,7 @@ function preCard() {
 }
 function colorChoice() {
   closeBig(); const m = $("modal"), b = $("mbox"); m.classList.add("stage"); b.className = "box gm";
-  b.innerHTML = `<div class="small">最後の質問</div><h2>この世界の色を選んでください</h2><p>青・橙・緑のひとつが、この世界の色になります。選んだ色が画面全体に広がり、終活が始まります。色ごとに別の世界が保存されます。</p><div class="seg pseg" id="cc">${ORB_COLORS.map(([k, rgb, n]) => `<button data-cc="${k}">${n}</button>`).join("")}</div>`;
+  b.innerHTML = `<div class="small">最後の質問</div><h2>担当するAIと管理エリア(色)を選んでください</h2><p>色が、あなたのAIと管理エリアになります。選ぶとすぐ終活が始まります。色ごとに別の世界が保存されます。</p><div class="seg pseg" id="cc">${ORB_COLORS.map(([k, rgb, n]) => { const i = slotInfo(k), a = E.AREAS[SV.THEMES.indexOf(k)]; return `<button data-cc="${k}"><b>${n}</b> ${a.name}<br><span class="small">${i ? `保存あり ${i.year}年(選ぶと別名で残して新しく始める)` : "空き"}</span></button>`; }).join("")}</div>`;
   m.hidden = false; if (!stageActive()) stageOn(true); orbs.burst(.9);
   b.querySelectorAll("[data-cc]").forEach(x => x.onclick = () => pickColor(ORB_COLORS.findIndex(c => c[0] === x.dataset.cc)));
 }
@@ -519,16 +575,16 @@ function pickColor(i) {
   if (orbs.sel) return;
   const t = ORB_COLORS[i][0], r = SV.read(localStorage, SV.slotKey(t));
   if (r.status === "empty") return assignColor(i);
-  const rows = [];
-  if (r.status !== "corrupt") rows.push([`既存の${TN[t]}の世界を続ける(いまの助走は破棄)`, () => continueExisting(i)]);
-  rows.push([`既存の${TN[t]}の世界を別名で保存して、新しく始める`, () => { if (!backupSlot(t)) return askModal('<h2>別名保存できませんでした</h2><p class="body">容量が足りないため、既存の世界には何も手を付けていません。</p>', [["色を選び直す", colorChoice]], true); assignColor(i); }]);
-  rows.push(["色を選び直す", colorChoice]);
-  askModal(`<div class="gm"><h2>${TN[t]}の世界は既にあります</h2><p>${r.status === "corrupt" ? "保存データが読めませんが、消してはいません。" : `${r.state.year}年 / ${fmtN(E.total(r.state))}人の世界です。`}どうしますか?</p></div>`, rows, true);
+  // 既存の世界は消さない: 別名で保存(読み戻して確認)できたら、確認なしで新しい世界を始める。できなければ何も触らず色を選び直す
+  if (!backupSlot(t)) return askModal('<h2>別名で保存できませんでした</h2><p class="body">容量が足りないため、既存の世界には何も手を付けていません。設定の手動枠を整理してから、もう一度選んでください。</p>', [["色を選び直す", colorChoice]], true);
+  slotNote = `${TN[t]}の前の世界(${r.status === "corrupt" ? "読めないデータ" : (r.state.year + "年")})は別名で残してあります(設定→色ごとの世界)。`;
+  assignColor(i);
 }
+let slotNote = "";
 function backupSlot(t) { try { const raw = localStorage.getItem(SV.slotKey(t)); if (raw === null) return true; const k = SV.slotKey(t) + ".bak" + Date.now(); localStorage.setItem(k, raw); return localStorage.getItem(k) === raw; } catch { return false; } }
 function assignColor(i) {
   const t = ORB_COLORS[i][0]; $("modal").hidden = true;
-  orbs.select(i).then(() => { const was = settings.theme; applyTheme(t); S.unassigned = false; if (!S.tri) E.initTriad(S, t, E.prefProfile(S).vec); if (!saveActive()) { S.unassigned = true; applyTheme(was); orbs.clearSelect(); return askModal("<h2>保存できませんでした</h2><p class=\"body\">容量が足りないため、色を決められませんでした。手動バックアップ枠などを整理してからやり直してください。</p>", [["色を選び直す", colorChoice]], true); } try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } startBuild(); });
+  orbs.select(i).then(() => { const was = settings.theme; applyTheme(t); S.unassigned = false; if (!S.tri) E.initTriad(S, t, E.prefProfile(S).vec); if (!saveActive()) { S.unassigned = true; applyTheme(was); orbs.clearSelect(); return askModal("<h2>保存できませんでした</h2><p class=\"body\">容量が足りないため、色を決められませんでした。手動バックアップ枠などを整理してからやり直してください。</p>", [["色を選び直す", colorChoice]], true); } try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } if (slotNote) { E.addLogPublic(S, slotNote, "sys"); slotNote = ""; } startBuild(); });
 }
 function continueExisting(i) {
   const t = ORB_COLORS[i][0]; $("modal").hidden = true;
@@ -705,7 +761,7 @@ function choose(id) {
 // ---------- 人類消滅後の地球の観察(終幕の評価とは別。表示は仮説モデルに基づく) ----------
 let lastAfterDraw = 0, lastAfterSave = 0, afterMode = false, afterSpeed = 0, afterAcc = 0, afterKey = "";
 const AFTER_SPEEDS = [[0, "停止"], [100, "100年/秒"], [1000, "1000年/秒"], [10000, "1万年/秒"], [100000, "10万年/秒"]];
-const LAYERS_NORMAL = '<option value="pop">人口</option><option value="happy">幸福度</option><option value="unrest">社会不安</option><option value="fac">稼働施設</option>', LAYERS_AFTER = '<option value="a_veg">植生</option><option value="a_city">都市の残存</option><option value="a_pl">汚染</option>';
+const LAYERS_NORMAL = '<option value="none">境界のみ(塗らない)</option><option value="pop">人口</option><option value="happy">幸福度</option><option value="unrest">社会不安</option><option value="fac">稼働施設</option>', LAYERS_AFTER = '<option value="a_veg">植生</option><option value="a_city">都市の残存</option><option value="a_pl">汚染</option>';
 function startEarth() {
   if (!S.ended) return; if (!S.after) { try { S.after = After.startAfter(S); } catch { $("ticker").textContent = "地球の観察を始められませんでした"; return; } } lastAfterSave = performance.now();
   document.body.classList.remove("ending"); stageOff(); $("afterbox").innerHTML = ""; afterMode = true; afterSpeed = 100; afterAcc = 0; $("layer").innerHTML = LAYERS_AFTER; $("mainstat").hidden = true; $("afterbox").hidden = false; $("modal").hidden = true; show("map"); afterRender(true); paintMap(); saveActive();

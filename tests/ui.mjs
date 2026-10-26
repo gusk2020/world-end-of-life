@@ -46,7 +46,7 @@ ok(await p.locator("#tabs [data-t=policy]").isVisible() && !(await p.locator("#t
 for (const t of ["map", "status", "log", "sys"]) { await p.click(`#tabs [data-t=${t}]`); await p.waitForTimeout(150); ok(await over() <= 0, `${t}タブで横スクロールなし`); }
 await p.click("#tabs [data-t=map]");
 const hdh = await p.evaluate(() => document.getElementById("hd").getBoundingClientRect().height);
-ok(hdh < 190, `ヘッダ高さ ${Math.round(hdh)}px (360x740の${Math.round(hdh / 7.4)}%)`);
+ok(hdh < 200, `ヘッダ高さ ${Math.round(hdh)}px (360x740の${Math.round(hdh / 7.4)}%)`);
 const mapH = await p.evaluate(() => document.getElementById("mapbox").getBoundingClientRect().height);
 ok(mapH >= 150, `地図の高さ ${Math.round(mapH)}px を確保(砂時計が地図を圧迫しない)`);
 const small = await p.evaluate(() => [...document.querySelectorAll("#speed button,#tabs button,#themes button,.gl")].filter(e => { const r = e.getBoundingClientRect(); return e.offsetParent !== null && (r.height < 30 || r.width < 30); }).length);
@@ -164,7 +164,7 @@ for (const [th, rgb] of [["green", "51,255,119"], ["orange", "255,160,48"], ["bl
 await p.click("#gclose");
 
 console.log("\n■ テーマ切替(青・緑・橙)と独立保存");
-const col = () => p.evaluate(() => [getComputedStyle(document.documentElement).getPropertyValue("--rgb").trim(), getComputedStyle(document.getElementById("date")).color, document.getElementById("svg").querySelector("path").style.fill]);
+const col = () => p.evaluate(() => { const L = document.getElementById("layer"); L.value = "pop"; L.dispatchEvent(new Event("change")); return [getComputedStyle(document.documentElement).getPropertyValue("--rgb").trim(), getComputedStyle(document.getElementById("date")).color, document.getElementById("svg").querySelector("path").style.fill]; });
 const seen = {};
 const sw = async (th) => { await p.click(`#themes [data-th=${th}]`); await p.waitForTimeout(120); if (await p.locator("#modal:not([hidden]) [data-ab='0']").count()) { await p.click("[data-ab='0']"); await p.waitForTimeout(150); } for (let i = 0; i < 14 && await p.locator("#modal:not([hidden]) #pgnext").count(); i++) await p.click("#pgnext"); await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (g.S.year < 2100) g.skipPrelude(); if (!g.paused) g.togglePause(); }); };
 for (const [th, rgb] of [["green", "51,255,119"], ["orange", "255,160,48"], ["blue", "77,166,255"]]) {
@@ -311,7 +311,7 @@ console.log("\n■ 第5次: 停止の順序・新規イベント");
   await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (!g.paused) g.togglePause(); g.settings.observe.sec = 0; });
   await p.click("#tabs [data-t=policy]"); await p.waitForTimeout(200);
   ok(await p.locator("[data-do]").count() === 3, "方針タブに停止の順序(危険度順/AI施設を先に/軍事を先に)がある");
-  await p.click("[data-do=mil]"); await p.click("#apply");
+  await p.evaluate(() => { const d = document.getElementById("moreset"); if (d) d.open = true; }); await p.click("[data-do=mil]"); await p.click("#apply");
   ok(await p.evaluate(() => window.__game.S.decomOrder) === "mil", "停止の順序を適用できる");
   { const ov = await over(); if (ov > 0) console.log(await p.evaluate(() => [...document.querySelectorAll("body *")].filter(e => e.getBoundingClientRect().right > document.documentElement.clientWidth + 1).slice(0, 4).map(e => e.tagName + "#" + e.id + "." + e.className))); ok(ov <= 0, "方針タブは360pxで横あふれしない"); }
   // 状態に連動する新規イベントのモーダル
@@ -360,7 +360,8 @@ console.log("\n■ 第6次: ピクトグラム・表示密度・結果表示");
 {
   await p.evaluate(() => { const g = window.__game; document.getElementById("modal").hidden = true; if (!g.paused) g.togglePause(); g.settings.observe.sec = 0; g.S.pending = null; g.S.year = Math.max(g.S.year, 2110); g.S.coop = .5; g.refresh(true); });
   await p.click("#tabs [data-t=map]"); await p.waitForTimeout(200);
-  const cnt = async d => { await p.click(`[data-pd=${d}]`); await p.waitForTimeout(100); return p.locator("#pictobox .pi").count(); };
+  await p.evaluate(() => { document.getElementById("mapmore").open = true; });
+  const cnt = async d => { await p.evaluate(d => document.querySelector(`[data-pd=${d}]`).click(), d); await p.waitForTimeout(100);  return p.locator("#pictobox .pi").count(); };
   const nmin = await cnt("min"), nstd = await cnt("std"), nfull = await cnt("full");
   ok(nmin <= nstd && nstd <= nfull && nfull === 18, `表示密度 最小限${nmin} ≤ 標準${nstd} ≤ 詳細${nfull}`);
   ok((await p.evaluate(() => JSON.parse(localStorage.getItem("weol.settings")).picto)) === "full", "表示密度の選択が保存される");
@@ -368,7 +369,7 @@ console.log("\n■ 第6次: ピクトグラム・表示密度・結果表示");
   const shapes = await p.evaluate(() => ["ok", "warn", "bad"].map(l => window.__game.S && 0 && l)); void shapes;
   await p.click('#pictobox .pi >> nth=0'); ok(/詳細|:/.test(await p.textContent("#pictobox .pdet")), "ピクトグラムをタップすると詳細が出る");
   await p.evaluate(() => { const S = window.__game.S; let k = S.countries.findIndex(c => !c.extinct); if (k < 0) { k = 0; S.countries[0].extinct = false; S.countries[0].y = 1e6; } S.countries[k].unrest = .9; S.facs.filter(f => f.c === k && f.t === 0).forEach(f => { f.st = 0; f.safety = .1; }); window.__game.refresh(true); });
-  await p.click("[data-pd=std]"); await p.waitForTimeout(150);
+  await p.evaluate(() => document.querySelector("[data-pd=std]").click()); await p.waitForTimeout(150);
   { const info = await p.evaluate(() => ({ tab: document.querySelector("#tabs .on").dataset.t, n: document.querySelectorAll("#pmarks .pico").length, dens: window.__game.settings.picto, after: window.__game.afterMode, vb: document.getElementById("svg").getAttribute("viewBox"), mk: window.__game.S && window.__game.SV && 1 })); ok(await p.locator("#pmarks .pico").count() >= 1, "世界地図に、危険のある国のピクトグラムが出る " + JSON.stringify(info)); }
   await p.evaluate(() => window.scrollTo(0, 0)); await p.waitForTimeout(80);
   const mp = await p.evaluate(() => { const e = document.querySelector("#pmarks .pico"); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, id: e.dataset.e }; });
@@ -448,7 +449,7 @@ console.log("\n■ 第6次: 人類消滅後の地球の観察");
   await p.click('[data-as="100000"]'); await p.waitForTimeout(1600); const ta = await p.evaluate(() => ({ t: window.__game.S.after.t, st: window.__game.S.after.stable, ext: !!document.getElementById("aext"), size: JSON.stringify(window.__game.S.after).length }));
   ok(ta.t > 20000 && !ta.ext && !("horizon" in (await p.evaluate(() => window.__game.S.after))), `観察に終了年はなく、2万年を超えて進み続ける(${ta.t.toLocaleString("en-US")}年・状態${(ta.size / 1024).toFixed(1)}KB)`);
   await p.click('[data-as="0"]'); const tb = await p.evaluate(() => window.__game.S.after.t); await p.waitForTimeout(400); ok(await p.evaluate(() => window.__game.S.after.t) === tb, "観察の停止・再開ができる");
-  await p.click("#aend"); await p.waitForTimeout(200); ok(await p.locator("#mainstat").isVisible(), "観察を終えると通常の地図+レーダー表示に戻る");
+  await p.click("#aend"); await p.waitForTimeout(200); ok(await p.evaluate(() => !document.getElementById("mainstat").hidden), "観察を終えると通常の地図+レーダー表示に戻る");
 }
 
 
