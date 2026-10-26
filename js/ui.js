@@ -70,7 +70,19 @@ function colorFor(c) {
   for (const f of S.facs) if (f.c === i) { n++; if (f.st === 0) r++; else if (f.st === 3) bad = true; }
   return bad ? A(1) : A(.1 + .7 * (n ? r / n : 0));
 }
+const AREA_RGB = { blue: "77,166,255", green: "51,255,119", orange: "255,160,48" };
+let areaSig = "";
+function paintAreas() { // 管轄エリアは国境の線の色で示す(塗りの濃淡とCRTの横線はそのまま)
+  const sig = S.tri ? S.countries.map(c => c.area ?? 0).join("") : ""; if (sig === areaSig) return; areaSig = sig;
+  for (const c of S.countries) for (const p of pathEls[c.id] || []) { if (S.tri) { p.style.stroke = `rgb(${AREA_RGB[E.AREAS[c.area ?? 0].key]})`; p.style.strokeWidth = "1.6"; } else { p.style.stroke = ""; p.style.strokeWidth = ""; } }
+}
+function triTable() {
+  if (!S.tri || S.year < E.PROGRAM) return "";
+  const u = E.triSummary(S), f = (v) => v >= 1e8 ? (v / 1e8).toFixed(1) + "億" : (v / 1e4).toFixed(0) + "万";
+  return `<table class="tri"><tr><th>AI</th><th>人口</th><th>資源</th><th>幸福</th><th>安定</th><th>研究</th></tr>${u.map(a => `<tr class="${a.me ? "me" : ""}"><td><i style="background:rgb(${AREA_RGB[a.key]})"></i>${a.name}${a.me ? "(あなた)" : ""}${a.core ? "" : "(停止)"}</td><td>${f(a.pop)}</td><td>${a.res.toFixed(0)}</td><td>${(a.happy * 100).toFixed(0)}</td><td>${(a.stable * 100).toFixed(0)}</td><td>${a.tech.toFixed(0)}</td></tr>`).join("")}</table>`;
+}
 function paintMap() {
+  paintAreas();
   S.countries.forEach(c => { const col = colorFor(c); if (fillCache[c.id] === col) return; fillCache[c.id] = col; for (const p of pathEls[c.id] || []) p.style.fill = col; });
   $("legend").textContent = { pop: "明るいほど人口が多い(2020年比・対数)。暗い=無人。", happy: "明るいほど幸福。", unrest: "明るいほど社会不安が高い。", fac: "明るいほど稼働施設が多い。最も明るい=事故施設あり。" }[$("layer").value];
 }
@@ -191,13 +203,14 @@ const bar = (v) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100,
 // ---------- メイン画面: 世界地図+レーダーチャート / 助走期間の制限 ----------
 let lastS = null, lastWinN = 0, fillCache = {}, saveT = 0, mainT = 0, mainY = 0, markSig = "", svgW = 0, mainKey = "", pictoDetail = null, cent = {}, resTimer = 0;
 function lockTabs() {
-  const pre = S.year < E.PROGRAM; for (const t of ["policy", "sites"]) { const b = document.querySelector(`#tabs [data-t=${t}]`); if (b) b.hidden = pre; }
-  if (pre && (tab === "policy" || tab === "sites")) show("map");
+  const pre = S.year < E.PROGRAM; for (const t of ["policy", "sites"]) { const b = document.querySelector(`#tabs [data-t=${t}]`); if (b) b.hidden = pre || (t === "sites" && !!S.tri); } // 3AI体制では遺産の画面を一時的に隠す(内部の状態と保存は残る)
+  if ((pre && (tab === "policy" || tab === "sites")) || (S.tri && tab === "sites")) show("map");
   const pl = $("preludeline"); if (pl) { pl.hidden = !pre; if (pre) { const ids = PRELUDE_IDS().concat(["learn", "infra", "mil", "design"]).filter(id => id !== "modesel"); pl.textContent = `助走期間(〜2100年): 方針の回答 ${ids.filter(id => S.done[id] !== undefined).length}/${ids.length}。価値観は「状況」タブで確認できます。`; } }
 }
 function mainStat(force) {
   const key = S.year + ":" + (S.pending ? 1 : 0) + ":" + settings.theme + ":" + settings.picto; if (!force && key === mainKey) return; const nw = performance.now(); if (!force && nw - mainT < 300 && S.year - mainY < 20) return; mainT = nw; mainY = S.year; mainKey = key;
   const m = I.metrics(S); $("radarbox").innerHTML = radar(m); pictoBoard();
+  { const tb = $("tribox"), h = triTable(); tb.hidden = !h; if (tb.dataset.h !== h) { tb.dataset.h = h; tb.innerHTML = h; } }
 }
 
 const DENS = [["min", "最小限"], ["std", "標準"], ["full", "詳細"]];
@@ -246,6 +259,19 @@ function radar(m, tr) {
   const lb = I.METRICS.map(([k, name], i) => { const [x, y] = pt(i, R + 14); const t = tr ? (tr[k] > .5 ? "▲" : tr[k] < -.5 ? "▼" : "→") : ""; return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${name}${m[k].toFixed(0)}${t}</text>`; }).join("");
   return `<svg class="radar" viewBox="0 0 240 170" width="100%" role="img" aria-label="7つの指標">${ax}<polygon class="poly" points="${poly}"/>${lb}</svg>`;
 }
+function triCard() {
+  if (!S.tri) return S.year >= E.PROGRAM ? `<div class="card small">この世界は旧版のセーブ(単一のAI)として読み込まれています。3AI体制の機能は使えません。新しい世界を始めると3AI体制になります。</div>` : "";
+  if (S.year < E.PROGRAM) return "";
+  const t = S.tri, me = t.ai[t.player], fc = E.triForecast(S), top = fc.items.slice(0, 2), tr = t.trace.slice(-3).reverse(), news = t.news.slice(-6).reverse();
+  const bars = top.map(x => `<div class="kv"><span>${x.name}(推定)</span><span>${x.est < .5 ? "余裕あり" : x.est < .8 ? "兆候あり" : "限界に近い"} ±${(x.err * 100).toFixed(0)}</span></div>${bar(x.est * 100)}`).join("");
+  const goal = `長期の目標: 人類を可能な限り長く存続させる(幸福・安全・自然・文化を犠牲にするだけの延命は別の帰結)。`;
+  return `<h3>${me.name}のAI(${{ blue: "青", green: "緑", orange: "橙" }[me.key]})</h3><div class="small">予測は予測、実績は実績として分けています。観測の精度 ${(fc.q * 100).toFixed(0)}%(研究と経験で上がる)。</div>
+  <div class="sub">崩壊の兆候(予測・揺らぎあり)</div>${bars}
+  <div class="sub">実績</div><div class="kv"><span>崩壊した回数(自分のエリア)</span><span>${t.eq[t.player].n}</span><span>布石が効いた回数(世界)</span><span>${t.stat.saved}</span><span>人口移動(累計)</span><span>${(t.stat.migrants / 1e4).toFixed(0)}万人</span><span>援助/制裁/侵略</span><span>${t.stat.aid.toFixed(0)} / ${t.stat.sanctions || 0} / ${t.stat.wars}</span></div>
+  ${tr.length ? `<div class="sub">過去の布石が効いた記録</div>${tr.map(x => `<div class="small">${x.y}年 ${x.text}</div>`).join("")}` : ""}
+  <div class="sub">AI間の重要な交流</div>${news.length ? news.map(x => `<div class="small">${x.y}年 ${x.t}</div>`).join("") : '<div class="small">まだ大きな動きはありません。</div>'}
+  <div class="small dim">${goal}</div>`;
+}
 const MN9 = { pop: "人口", happy: "幸福", safety: "安全性", env: "環境", res: "資源", ai: "AI", her: "遺産" };
 function epCard() {
   const w = S.w9; if (!w || S.year < E.PROGRAM) return "";
@@ -257,7 +283,7 @@ function statusView() {
   const g = S.g, ai = S.ai, m = I.metrics(S), bn = I.bottleneck(S), n = hourglassNumbers(S);
   const F = FACTYPES.map((T, t) => { const f = S.facs.filter(x => x.t === t); const c = [0, 0, 0, 0]; f.forEach(x => c[x.st]++); return `<span>${T.name}</span><span>${f.length} / 稼働${c[0]} 停止中${c[1]} 封鎖${c[2]}${c[3] ? ` 事故${c[3]}!` : ""}</span>`; }).join("");
   const ph = g.lull > .5 ? "静穏期(放射が弱い)" : g.peak > .6 ? "活発期(放射が強い)" : "通常", fr = E.coreFailRate(S), mt = E.mammalTotals(S), wa = E.wildAlive(S);
-  $("status").innerHTML = preludeCard() + `<div class="card alert"><b>いまの最大のボトルネック: ${bn.name} (${bn.value.toFixed(0)})</b><div class="small">原因: ${bn.cause}</div></div>
+  $("status").innerHTML = preludeCard() + triCard() + `<div class="card alert"><b>いまの最大のボトルネック: ${bn.name} (${bn.value.toFixed(0)})</b><div class="small">原因: ${bn.cause}</div></div>
   <h3>7つの指標(▲▼は今後10年の見込み)</h3><div id="radarbox2">${radar(m, trendCache && trendCache.year === S.year ? trendCache.d : null)}</div>
   <div class="small">${I.RELATIONS.map(r => `${r[0]}${r[1]}${r[2]}: ${r[3]}`).join("<br>")}</div>
   ${epCard()}
@@ -326,10 +352,10 @@ function policyView() {
   ensureDraft(); const prog = E.programActive(S), p = draft.policy, sum = chSum(p), fresh = new Set(E.newMarks(S, "policy").map(x => x.id)), ro = !E.canEdit(S);
   $("policy").innerHTML = winBanner() + `<h3>進行設定</h3>${progHTML()}
   <details><summary>あなたの価値観(自動判断の基準)</summary>${prefBars()}</details>
-  <h3>資源配分</h3><div class="card small">${prog ? "管理リソースの配分。人口には直接触れられません。" : "2100年までは観察期。配分は2100年から効力を持ちます。"}変更は下書きで、見込みを見てから「適用」します。</div>${E.CHANNELS.map(([k, n]) => chRow(k, n, p, sum, fresh)).join("")}
+  <h3>${S.tri ? E.AREAS[S.tri.player].name + "のAIの資源配分" : "資源配分"}</h3><div class="card small">${S.tri ? "あなたのAIの配分です。ほかの2つのAIは、それぞれ自分の価値観と経験で配分を決めています。" : ""}${prog ? "管理リソースの配分。人口には直接触れられません。" : "2100年までは観察期。配分は2100年から効力を持ちます。"}変更は下書きで、見込みを見てから「適用」します。</div>${E.CHANNELS.map(([k, n]) => chRow(k, n, p, sum, fresh)).join("")}
   <div class="row">${Object.entries({ balanced: "均衡", care: "終活重視", research: "研究重視", safety: "停止重視", legacy: "自然・遺産", wild: "野生保護" }).map(([k, n]) => `<button data-pre="${k}">${n}</button>`).join("")}</div>
-  <h3>人類と大型哺乳類の土地の分け方</h3><div class="seg">${Object.entries(STANCE_NAME).map(([k, nm]) => `<button data-ws="${k}" class="${draft.wildStance === k ? "on" : ""}">${nm}</button>`).join("")}</div>
-  <div class="small">野生優先: 生息地と生態系は守れるが、人類の幸福と資源を圧迫する。人類優先: 逆。どちらでも大型哺乳類の絶滅は避けられないが、最期までの福祉と時間が変わる。</div>
+  ${S.tri ? "" : `<h3>人類と大型哺乳類の土地の分け方</h3><div class="seg">${Object.entries(STANCE_NAME).map(([k, nm]) => `<button data-ws="${k}" class="${draft.wildStance === k ? "on" : ""}">${nm}</button>`).join("")}</div>
+  <div class="small">野生優先: 生息地と生態系は守れるが、人類の幸福と資源を圧迫する。人類優先: 逆。どちらでも大型哺乳類の絶滅は避けられないが、最期までの福祉と時間が変わる。</div>`}
   <h3>停止の進め方</h3><div class="seg"><button data-sov="consent" class="${draft.sovMode === "consent" ? "on" : ""}">合意に基づく</button><button data-sov="override" class="${draft.sovMode === "override" ? "on" : ""}">強制停止</button></div>
   <div class="small">強制:短期は安全が早まる/長期は主権・信頼・社会の安定を損なう。</div>
   <h3>停止の順序</h3><div class="seg">${Object.entries(E.DECOM_ORDERS).map(([k, n]) => `<button data-do="${k}" class="${draft.decomOrder === k ? "on" : ""}">${n}</button>`).join("")}</div><div class="small">${{ hazard: "危険な施設から止める。発電も早く止まり、後の解体が遅くなる", ai: "AI施設を先に止める。機械が増えにくいが、解体を補う自動化も弱まる", mil: "軍事施設を先に止める。紛争の火種を減らす" }[draft.decomOrder]}</div>
@@ -403,7 +429,7 @@ function sitesView() {
 }
 
 // ---------- 年表(本文は白字。長い文は3行に要約し、タップで全文) ----------
-const FILT = { important: ["major", "acc", "war", "choice", "sys", "auto", "astro"], story: ["nar", "dec", "hist", "mam"], all: null };
+const FILT = { important: ["major", "acc", "war", "choice", "sys", "auto", "astro", "tri"], story: ["nar", "dec", "hist", "mam"], all: null };
 function logView() {
   const f = FILT[logFilter];
   $("log").innerHTML = `<div class="chips">${[["important", "重要"], ["story", "物語"], ["all", "すべて"]].map(([k, n]) => `<button data-lf="${k}" class="${logFilter === k ? "on" : ""}">${n}</button>`).join("")}</div>` +
@@ -502,7 +528,7 @@ function pickColor(i) {
 function backupSlot(t) { try { const raw = localStorage.getItem(SV.slotKey(t)); if (raw === null) return true; const k = SV.slotKey(t) + ".bak" + Date.now(); localStorage.setItem(k, raw); return localStorage.getItem(k) === raw; } catch { return false; } }
 function assignColor(i) {
   const t = ORB_COLORS[i][0]; $("modal").hidden = true;
-  orbs.select(i).then(() => { const was = settings.theme; applyTheme(t); S.unassigned = false; if (!saveActive()) { S.unassigned = true; applyTheme(was); orbs.clearSelect(); return askModal("<h2>保存できませんでした</h2><p class=\"body\">容量が足りないため、色を決められませんでした。手動バックアップ枠などを整理してからやり直してください。</p>", [["色を選び直す", colorChoice]], true); } try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } startBuild(); });
+  orbs.select(i).then(() => { const was = settings.theme; applyTheme(t); S.unassigned = false; if (!S.tri) E.initTriad(S, t, E.prefProfile(S).vec); if (!saveActive()) { S.unassigned = true; applyTheme(was); orbs.clearSelect(); return askModal("<h2>保存できませんでした</h2><p class=\"body\">容量が足りないため、色を決められませんでした。手動バックアップ枠などを整理してからやり直してください。</p>", [["色を選び直す", colorChoice]], true); } try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } startBuild(); });
 }
 function continueExisting(i) {
   const t = ORB_COLORS[i][0]; $("modal").hidden = true;
@@ -520,7 +546,7 @@ function startBuild() {
 function skipPrelude(theme) {
   while (S.year < E.PROGRAM - 1 && !S.ended) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); }
   if (S.pending && S.pending.id === "modesel") E.choose(S, "manual");
-  $("modal").hidden = true; if (build) build.skip(); S.unassigned = false; if (theme) applyTheme(theme);
+  $("modal").hidden = true; if (build) build.skip(); S.unassigned = false; if (theme) applyTheme(theme); if (!S.tri) E.initTriad(S, theme || settings.theme, E.prefProfile(S).vec);
   try { localStorage.removeItem(PRE_KEY); } catch { } holdPrelude = false; preludeOn = true; syncPrelude(); preludeOn = false; document.body.classList.remove("prelude"); stageOff();
   while (S.year < E.PROGRAM + 1 && !S.ended) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } S.pending = null; settings.tutorialDone = true; paused = true; shownKey = null; refresh(true); snapCompact(); mainStat(true); saveActive();
 }

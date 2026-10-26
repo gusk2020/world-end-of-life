@@ -160,3 +160,8 @@ body.ending #precard{display:none}
 .small.warn{color:#ffb347}
 .bt{margin:8px 0}.bt .nm{display:flex;justify-content:space-between;gap:8px}
 input:disabled,button:disabled{opacity:.5}
+
+/* 第10次: 3AIの比較表 */
+#tribox{margin:4px 0}#tribox[hidden]{display:none}
+table.tri{width:100%;border-collapse:collapse;font-size:12px}table.tri th,table.tri td{border:1px solid var(--line);padding:2px 3px;text-align:right}table.tri th:first-child,table.tri td:first-child{text-align:left;white-space:nowrap}
+table.tri i{display:inline-block;width:9px;height:9px;margin-right:4px;border-radius:2px}table.tri tr.me td{font-weight:bold}

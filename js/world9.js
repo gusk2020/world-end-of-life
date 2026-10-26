@@ -4,6 +4,7 @@
 // 【考え方】出来事は「状態から決まる発生率 → 予兆 → 影響(国・施設・人口・資源・環境) → 後遺症」の一続き。データ(EPISODES)を足すだけで増やせる。
 //  宗教・思想は名称で善悪を決めない。強制・搾取・医療拒否・相互扶助・共同体の維持といった具体的な行動と結果で扱う。
 import { rnd } from "./rng.js";
+import { shock } from "./triad.js";
 const cl = (x, a, b) => x < a ? a : x > b ? b : x;
 const cpop = c => c.y + c.a + c.o;
 const log = (s, text, kind = "hist") => { s.log.push({ y: s.year, t: text, k: kind }); if (s.log.length > 1500) s.log.splice(0, 200); };
@@ -62,6 +63,7 @@ function disaster(o) {
       if (first || o.every) { lose(c, o.loss * k * (first ? 1 : .3)); c.logi = cl(c.logi - o.logi * k, .1, .98); c.unrest = cl(c.unrest + .02 * k, 0, 1); c.happy = cl(c.happy - .03 * k, 0, 1); if (o.cut) c.cut = cl((c.cut || 0) + o.cut * k, 0, .8); g.res = cl(g.res - o.res * k, 0, 100); }
       if (first) {
         if (o.fac) { const i = s.countries.indexOf(c); let n = 0; for (const f of s.facs) if (f.c === i && o.fac.t.includes(f.t) && f.st < 3) { f.safety = cl(f.safety - o.fac.d * k, .02, .97); n++; } ep.facHit = n; }
+        if (s.tri && o.eq) for (const [kk, am] of o.eq) shock(s, ep.t[0], kk, am * ep.sev); // 均衡の法則へ接続: 災害は負荷として蓄積する
         if (o.her) g.her = cl(g.her - o.her * k, 0, 100);
         if (o.bio) g.bio = cl(g.bio - o.bio * k, 0, 100);
         if (o.wild) for (let gi = 0; gi < s.mam.length; gi++) if (gi < 4) { const m = s.mam[gi], l = m.n * o.wild * k; m.n -= l; m.dd += l; }
@@ -79,23 +81,23 @@ export const EPISODES = {
     start(s, ep, st, P) { const c = wpick(s, st.live, x => cpop(x) * (1.2 - x.health)); ep.t = [s.countries.indexOf(c)]; ep.sev = .5 + .6 * rnd(s); ep.cause = `${c.name}で発生。原因: 居住の密度(集約度${Math.round(st.cons * 100)})と医療の余力(健康${st.Hl.toFixed(2)})`; ep.ask = ep.sev > .75; return ep.cause; },
     tick(s, ep, st, P) { const g = s.g, k = ep.sev * ep.resp * (1 - .6 * P.careP) * (1 - .3 * (g.med || 0)) * dens(st);
       if (ep.age > 0 && ep.t.length < 4 && rnd(s) < .25 * dens(st) * ep.sev) { const c2 = wpick(s, st.live.filter(x => !ep.t.includes(s.countries.indexOf(x))), x => cpop(x)); if (c2) ep.t.push(s.countries.indexOf(c2)); }
-      for (const i of ep.t) { const c = s.countries[i]; if (!c || c.extinct) continue; lose(c, .004 * k); c.o *= 1 - .01 * k; c.unrest = cl(c.unrest + .012 * k, 0, 1); c.happy = cl(c.happy - .02 * k, 0, 1); c.health = cl(c.health - .01 * k, .1, 1); c.logi = cl(c.logi - .004 * k, .1, .98); }
+      for (const i of ep.t) { const c = s.countries[i]; if (!c || c.extinct) continue; lose(c, .004 * k); c.o *= 1 - .01 * k; c.unrest = cl(c.unrest + .012 * k, 0, 1); c.happy = cl(c.happy - .02 * k, 0, 1); c.health = cl(c.health - .01 * k, .1, 1); c.logi = cl(c.logi - .004 * k, .1, .98); if (s.tri) shock(s, i, 2, .07 * k); }
       g.res = cl(g.res - .06 * k, 0, 100); ep.k = k; },
     end(s, ep, st, P) { for (const i of ep.t) { const c = s.countries[i]; if (c) c.health = cl(c.health - .04, .1, 1); } if (ep.k < .4 && P.careP > .35) { s.w9.flags.epiWin = s.year; } } },
-  quake: disaster({ name: "大地震と津波", cool: 40, dur: [1, 2], m: ["pop", "safety", "her"], loss: .006, logi: .08, cut: .25, res: .5, her: 1.2, fac: { t: [0, 1, 2], d: .1 }, w: c => 1,
+  quake: disaster({ name: "大地震と津波", cool: 40, dur: [1, 2], m: ["pop", "safety", "her"], loss: .006, logi: .08, cut: .25, res: .5, her: 1.2, fac: { t: [0, 1, 2], d: .1 }, w: c => 1, eq: [[1, .3], [5, .2], [0, .2]],
     risk: (s, st) => .008 * (1 + .6 * st.cons), warn: () => null, // 温暖化とは関係が薄い: 汚染・環境・遮蔽の以外の方針では減らない
     cause: (s, st, c) => `${c.name}の沿岸で発生。地殻の活動によるもので、気候の状態とは無関係(居住の集約度${Math.round(st.cons * 100)}が被害を広げる)` }),
-  flood: disaster({ name: "大洪水", dur: [1, 2], m: ["pop", "env", "safety"], loss: .003, logi: .06, cut: .15, res: .3, bio: .3, fac: { t: [0, 1], d: .05 }, pl: .3,
+  flood: disaster({ name: "大洪水", dur: [1, 2], m: ["pop", "env", "safety"], loss: .003, logi: .06, cut: .15, res: .3, bio: .3, eq: [[1, .25], [3, .2]], fac: { t: [0, 1], d: .05 }, pl: .3,
     risk: (s, st, P) => .004 + .018 * (s.g.pl / 100) * (1 - .6 * (s.g.land || 0)) * (1 - .5 * P.ecoP), warn: (s, st, P) => ((.004 + .018 * s.g.pl / 100 * (1 - .6 * (s.g.land || 0)) * (1 - .5 * P.ecoP)) > .014) ? "河川の増水が記録されている(汚染と環境の劣化が災害を呼びやすくしている)" : null,
     cause: (s, st, c) => `${c.name}で発生。原因: 環境の劣化(汚染${s.g.pl.toFixed(0)})と、緩衝となる湿地・森林の不足` }),
-  drought: disaster({ name: "大干ばつ", dur: [3, 6], m: ["pop", "happy", "env"], loss: .001, logi: .02, res: .4, bio: .4, every: true,
+  drought: disaster({ name: "大干ばつ", dur: [3, 6], m: ["pop", "happy", "env"], loss: .001, logi: .02, res: .4, bio: .4, every: true, eq: [[3, .3]],
     risk: (s, st, P) => .004 + .016 * (s.g.pl / 100) * (1 - .5 * (s.g.land || 0)) * (1 - .4 * P.ecoP), warn: () => null,
     chronic: (s, c, k) => { c.health = cl(c.health - .012 * k, .1, 1); c.hope = cl(c.hope - .01 * k, .05, 1.3); c.consent = cl(c.consent - .006 * k, 0, 1); },
     cause: (s, st, c) => `${c.name}で発生。原因: 気温の上昇と土壌の乾燥(汚染${s.g.pl.toFixed(0)})` }),
-  storm: disaster({ name: "巨大な暴風雨", dur: [1, 2], m: ["pop", "safety"], loss: .002, logi: .1, cut: .3, res: .3, fac: { t: [0, 1, 2, 3], d: .04 },
+  storm: disaster({ name: "巨大な暴風雨", dur: [1, 2], m: ["pop", "safety"], loss: .002, logi: .1, cut: .3, res: .3, eq: [[0, .25], [1, .2]], fac: { t: [0, 1, 2, 3], d: .04 },
     risk: (s, st, P) => .005 + .014 * (s.g.pl / 100) * (1 - .4 * P.ecoP), warn: () => null,
     cause: (s, st, c) => `${c.name}を直撃。送電と輸送が長く止まる(輸送網の整理が進むほど迂回が効かない: 集約度${Math.round(st.cons * 100)})` }),
-  wildfire: disaster({ name: "大規模な山火事", dur: [1, 3], m: ["env", "her"], loss: .0008, logi: .02, res: .15, bio: 1.5, her: .8, wild: .015, pl: .5, every: true,
+  wildfire: disaster({ name: "大規模な山火事", dur: [1, 3], m: ["env", "her"], loss: .0008, logi: .02, res: .15, bio: 1.5, eq: [[3, .15]], her: .8, wild: .015, pl: .5, every: true,
     risk: (s, st, P) => .004 + .015 * (s.g.pl / 100) * (1 - .6 * (s.g.land || 0)) * (1 - .4 * P.ecoP), warn: () => null,
     cause: (s, st, c) => `${c.name}の森林で発生。乾燥と、管理されない放棄地の可燃物(環境の劣化)が原因` }),
   cult: { kind: "bad", name: "搾取的な新興団体の拡大", cool: 40, dur: [8, 20], m: ["happy", "res", "pop"],
@@ -103,7 +105,7 @@ export const EPISODES = {
     warn: (s, st, P) => ((.004 + .02 * Math.max(0, .9 - st.Hop) + .016 * st.U - .02 * P.careP) > .02) ? "終末への不安と不信が高まり、強い勧誘を行う団体の噂が広がっている" : null,
     start(s, ep, st, P) { const c = wpick(s, st.live, x => cpop(x) * (1.2 - x.consent + x.unrest)); ep.t = [s.countries.indexOf(c)]; ep.sev = .5 + .6 * rnd(s); ep.cause = `${c.name}で拡大。原因: 終末への不安(希望${st.Hop.toFixed(2)})・不信(不安${st.U.toFixed(2)})。評価するのは信仰ではなく、強制・搾取・医療の拒否といった行動`; ep.ask = true; return ep.cause; },
     tick(s, ep, st, P) { const g = s.g, c = s.countries[ep.t[0]]; if (!c || c.extinct) return; const k = ep.sev * ep.resp * (1 - .4 * P.guardP) * (1 - .5 * P.careP);
-      c.consent = cl(c.consent - .01 * k, 0, 1); c.a *= 1 - .0008 * k; c.unrest = cl(c.unrest + .004 * k, 0, 1); c.health = cl(c.health - .004 * k, .1, 1); c.happy = cl(c.happy - .004 * k, 0, 1); g.res = cl(g.res - .08 * k, 0, 100); ep.k = k; },
+      c.consent = cl(c.consent - .01 * k, 0, 1); c.a *= 1 - .0008 * k; c.unrest = cl(c.unrest + .004 * k, 0, 1); c.health = cl(c.health - .004 * k, .1, 1); c.happy = cl(c.happy - .004 * k, 0, 1); g.res = cl(g.res - .08 * k, 0, 100); if (s.tri) shock(s, ep.t[0], 4, .03 * k); ep.k = k; },
     end(s, ep) { const c = s.countries[ep.t[0]]; if (c) c.consent = cl(c.consent - .03, 0, 1); } },
   fad: { kind: "bad", name: "根拠の乏しい思想の流行", cool: 30, dur: [6, 12], m: ["safety", "res", "happy"],
     risk: (s, st, P) => Math.max(0, .004 + .012 * Math.max(0, .8 - st.Hop) + .006 * (st.U) - .012 * P.careP - .006 * Math.min(1, s.g.rsr / 60)),
@@ -231,7 +233,7 @@ function btStep(s, sh, st, flow) {
     if (b.done || s.year < d.start) continue; if (d.needs && ((w.bt[d.needs[0]] || { p: 0 }).p < d.needs[1])) continue;
     const feas = cl(avg(d.hard, ([, f]) => f(s, st) ? 1 : .35) * .6 + .4 * cl(g.res / 60, 0, 1), 0, 1) * (1 - .6 * (s.host.ctrl || 0)) * (1 - w.indiv);
     if (b.p < 100) {
-      const inc = flow * sh.research * 0.05 * feas * (1 - b.p / 140);
+      const inc = flow * sh.research * 0.05 * feas * (s.tri ? s.tri.techSyn || 1 : 1) * (1 - b.p / 140);
       b.p = cl(b.p + inc, 0, 100); g.res = cl(g.res - inc * .004, 0, 100);
       // 失敗・中断・偽の突破口
       if (b.p >= 20 && rnd(s) < .008 * (1.3 - feas)) {

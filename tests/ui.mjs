@@ -42,7 +42,7 @@ console.log("\n■ 360px 表示");
 const noObs = () => p.evaluate(() => { window.__game.settings.observe.sec = 0; }); // 既存の検証では観察フェーズを切る(観察は専用の節で検証)
 await noObs();
 const over = () => p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-ok(await p.locator("#tabs [data-t=policy]").isVisible() && await p.locator("#tabs [data-t=sites]").isVisible(), "助走期間のあと(2100年〜)は方針・遺産タブが開く");
+ok(await p.locator("#tabs [data-t=policy]").isVisible() && !(await p.locator("#tabs [data-t=sites]").isVisible()) && await p.evaluate(() => !!window.__game.S.tri), "助走期間のあと(2100年〜)は3AI体制になり、方針タブが開く(遺産の画面は一時的に隠す)");
 for (const t of ["map", "status", "log", "sys"]) { await p.click(`#tabs [data-t=${t}]`); await p.waitForTimeout(150); ok(await over() <= 0, `${t}タブで横スクロールなし`); }
 await p.click("#tabs [data-t=map]");
 const hdh = await p.evaluate(() => document.getElementById("hd").getBoundingClientRect().height);
@@ -52,7 +52,7 @@ ok(mapH >= 150, `地図の高さ ${Math.round(mapH)}px を確保(砂時計が地
 const small = await p.evaluate(() => [...document.querySelectorAll("#speed button,#tabs button,#themes button,.gl")].filter(e => { const r = e.getBoundingClientRect(); return e.offsetParent !== null && (r.height < 30 || r.width < 30); }).length);
 ok(small === 0, "主要ボタンはすべて30px以上");
 await adv(2160);
-for (const t of ["policy", "sites"]) { await p.click(`#tabs [data-t=${t}]`); await p.waitForTimeout(150); ok(await over() <= 0, `${t}タブで横スクロールなし(終活期)`); }
+for (const t of ["policy", "status"]) { await p.click(`#tabs [data-t=${t}]`); await p.waitForTimeout(150); ok(await over() <= 0, `${t}タブで横スクロールなし(終活期)`); }
 await p.click("#tabs [data-t=map]");
 const clip = () => p.evaluate(() => [...document.querySelectorAll(".gt")].filter(e => e.scrollWidth > e.clientWidth + 1).length);
 ok(await clip() === 0, "3つの砂時計の数字(10桁超)が360px幅で切れない");
@@ -242,7 +242,7 @@ ok(await p.locator("input[data-k=wild]").count() === 1, "大型哺乳類の保�
 await p.evaluate(() => { const r = document.querySelector("input[data-k=wild]"); r.value = 60; r.dispatchEvent(new Event("input")); r.dispatchEvent(new Event("change")); });
 await p.waitForTimeout(1800);
 ok(/年後/.test(await p.textContent("#pvbox")), "方針の変更で10年後/40年後の差分表が出る");
-await p.click("#apply"); await p.click("#tabs [data-t=sites]"); ok(await p.locator(".site").count() >= 30, "遺産が30件以上並ぶ");
+await p.click("#apply"); await p.evaluate(() => { const g = window.__game; g.S.tri = null; g.refresh(true); }); /* 旧セーブ互換(単一AI)の画面で遺産を確認する */ await p.click("#tabs [data-t=sites]"); ok(await p.locator(".site").count() >= 30, "遺産が30件以上並ぶ");
 
 console.log("\n■ セーブ・ロード");
 await p.evaluate(() => { const g = window.__game; if (!g.paused) g.togglePause(); });
@@ -469,7 +469,7 @@ console.log("■ 第9次: 政策の段階的解放・新着の印・全自動の
   const c9 = await b.newContext({ viewport: { width: 360, height: 740 }, hasTouch: true }), q = await c9.newPage(); const e9 = []; q.on("pageerror", e => e9.push(e.message));
   await q.addInitScript(() => localStorage.setItem("weol.settings", JSON.stringify({ introSeen: true, tutorialDone: true, observe: { sec: 0, style: "stop" } })));
   await q.goto(URL_); await q.waitForTimeout(500); await q.evaluate(() => window.__game.skipPrelude("blue")); await q.waitForTimeout(200);
-  await q.evaluate(() => { const g = window.__game, S = g.S, E = g.E; if (!g.paused) g.togglePause(); S.noEvents = true; S.pending = null; document.getElementById("modal").hidden = true; while (S.year < 2112) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } g.refresh(true); });
+  await q.evaluate(() => { const g = window.__game, S = g.S, E = g.E; S.tri = null; /* 第9次の機能は旧セーブ互換の画面で確認 */ if (!g.paused) g.togglePause(); S.noEvents = true; S.pending = null; document.getElementById("modal").hidden = true; while (S.year < 2112) { E.tick(S); if (S.pending) E.choose(S, S.pending.choices[0].id); } g.refresh(true); });
   ok(await q.evaluate(() => document.querySelector("#tabs [data-t=policy]").classList.contains("nw")), "新しい機能が解放されると方針タブに新着の印が出る");
   await q.click("#tabs [data-t=policy]"); await q.waitForTimeout(150);
   ok(!(await q.evaluate(() => document.querySelector("#tabs [data-t=policy]").classList.contains("nw"))), "方針タブを開いて確認すると印は消える");

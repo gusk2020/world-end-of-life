@@ -3,9 +3,12 @@ import { COUNTRY_DEFS, FACTYPES } from "./data.js";
 import { SITES, initSites, stepSites, siteScore, siteSummary, setSite, applySitePolicy, undecided } from "./heritage.js";
 import { cityNarratives, decadeNarrative, cityOf, era } from "./narrative.js";
 import { rnd } from "./rng.js";
+import { triPre, triStep, initTriad as initTriad0, shock as triShock, triSummary, forecast as triForecast, AREAS, AREA_OF, AREA_BY_COLOR, SUB as TRI_SUB, fairness as triFairness, contiguous as triContiguous, polOf as triPolOf, KEYS as TRI_KEYS } from "./triad.js";
 import { W9_DEFAULT, stepW9, channelOpen, askEvents, retroUnlock, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance, newMarks, markSeen, WIN, btStatus } from "./world9.js";
 import { GROUPS, WILDLAND, initMammals, mammalN0, mammalTotals, wildAlive, exposureOf, stepAstro, coreFailRate, stepMammals, ecoFunction, mammalScore } from "./life.js";
 export { GROUPS, mammalTotals, mammalScore, wildAlive, coreFailRate, ecoFunction };
+export { triSummary, triForecast, AREAS, AREA_OF, AREA_BY_COLOR, TRI_SUB, triFairness, triContiguous, triPolOf, TRI_KEYS };
+export function initTriad(s, color, pref) { return initTriad0(s, AREA_BY_COLOR[color] ?? 0, pref); } // 色=担当するAIとエリア。ここで3AI体制が始まる
 export { W9_DEFAULT, channelOpen, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance, newMarks, markSeen, WIN, btStatus };
 // 解放済みの遺産だけに、一括の方針を当てる(未解放の遺産は選べない)
 export function applySitePolicyOpen(s, policy) { SITES.forEach((d, i) => { if (s.sites[i].st !== 0 || !siteOpen(s, d, 1)) return; let m = 0; if (policy === "protect") m = 1; else if (policy === "record") m = 2; else if (policy === "select") m = d.type === "natural" || d.type === "mixed" ? (siteOpen(s, d, 3) ? 3 : 0) : d.v >= 4 ? 1 : 2; if (m) setSite(s, d.id, m); }); }
@@ -45,10 +48,10 @@ export function newGame(seed = 1) {
     const c = {
       id: d.id, name: d.name, def: d, y: P * yS, a: P * (1 - yS - oS), o: P * oS, P0: P, tfr: d.tfr, L0: P * (1 - yS - oS) * .75,
       gdp0: d.gdp, gdp: d.gdp, ind: 1, logi: .6 + .35 * d.dev, happy: .5 + .1 * d.dev, unrest: .25 - .1 * d.dev,
-      consent: .15, hope: 1.05, ex: exposureOf(d.id), aware: 0, auto: 0, health: .4 + .5 * d.dev, m: 1, en: 1, extinct: false, nucS: 0, sab: 0, cut: 0, pauseUntil: 0, sup: 1, econ: 1,
+      consent: .15, hope: 1.05, ex: exposureOf(d.id), aware: 0, auto: 0, health: .4 + .5 * d.dev, m: 1, en: 1, extinct: false, nucS: 0, sab: 0, cut: 0, pauseUntil: 0, sup: 1, econ: 1, area: 0,
     };
     s.countries.push(c); s.g.gdp0 += d.gdp; s.g.P0 += P;
-    const mk = (t, n, tag) => { for (let i = 0; i < n; i++) s.facs.push({ id: fid++, c: s.countries.length - 1, t, n: `${d.name}の${FACTYPES[t].name}${tag}#${i + 1}`, st: 0, safety: clamp(.55 + .4 * d.dev + (rnd(s) - .5) * .1, .3, .97), prog: 0, rogue: false }); };
+    const mk = (t, n, tag) => { for (let i = 0; i < n; i++) s.facs.push({ id: fid++, c: s.countries.length - 1, t, n: `${d.name}の${FACTYPES[t].name}${tag}#${i + 1}`, st: 0, safety: clamp(.55 + .4 * d.dev + (rnd(s) - .5) * .1, .3, .97), prog: 0, rogue: false, rp: -1 }); };
     mk(0, d.nuc, "発電所"); mk(1, d.chem, "工場"); mk(2, d.dam, ""); mk(3, d.milN, "拠点"); mk(4, d.ai, "センター"); mk(5, d.space, "基地");
   }
   s.g.peak = s.g.P0; s.sites = initSites(); aiInit(s);
@@ -90,7 +93,10 @@ export function migrate(s) { // 旧セーブ(v1)の読み込み
   if (g.aiActive === undefined) aiInit(s);
   if (!s.host) s.host = hostInit(); else { const h0 = hostInit(); s.host = { ...h0, ...s.host, fac: { ...h0.fac, ...(s.host.fac || {}) }, str: { ...h0.str, ...(s.host.str || {}) }, hist: { ...h0.hist, ...(s.host.hist || {}) } }; } if (!s.hostPolicy) s.hostPolicy = { ...HOST_POLICY_DEFAULT }; if (g.aiJail === undefined) g.aiJail = 0;
   for (const c of s.countries) { if (c.sab === undefined) c.sab = 0; if (c.cut === undefined) c.cut = 0; if (c.pauseUntil === undefined) c.pauseUntil = 0; }
-  for (const f of s.facs) if (f.rogue === undefined) f.rogue = false; // 形を揃える(後から項目が増えると処理が遅くなる)
+  for (const f of s.facs) { if (f.rogue === undefined) f.rogue = false; if (f.rp === undefined) f.rp = -1; }
+  for (const c of s.countries) if (c.area === undefined) c.area = 0;
+  if (s.tri === undefined) s.tri = null; // 3AI体制でない世界(旧セーブ)は、従来の単一AIとして読み取る互換モード
+  void 0; // 形を揃える(後から項目が増えると処理が遅くなる)
   if (!s.mam) s.mam = initMammals();
   if (!s.series) s.series = { h: [], a: [], m: [] };
   if (!s.mode) s.mode = "manual"; if (!s.wildStance) s.wildStance = "balanced"; if (!s.decomOrder) s.decomOrder = "hazard"; if (s.year >= PROGRAM) for (const ev of EVENTS) if (ev.prelude && s.done[ev.id] === undefined) s.done[ev.id] = s.year; // 終活期に入った古いセーブに助走期間の質問を出さない if (!s.autoLog) s.autoLog = [];
@@ -176,7 +182,7 @@ function hostileStep(s, sh, prog) {
   // ---- 行動: 資源(pool)の範囲で、1年に最大3回まで。被害は防御で減る ----
   H.yr = {}; let acts = 0; const dmg = (1 - D * .6) * ph, dmgC = (1 - Dcy * .6) * ph, pick = () => live[Math.floor(rnd(s) * live.length)];
   for (const k of ["opp", "raid", "cyb", "rog"]) { const f = H.fac[k]; f.pool = clamp(f.pool + (str[k] * 9 + (k === "raid" ? .5 + 2 * H.T : 0)) * (1 - .6 * (k === "cyb" ? Dcy : D)) - 3 * deesc, 0, 100); }
-  const hit = (c, amt) => { c.sab = clamp((c.sab || 0) + amt, 0, 1); };
+  const hit = (c, amt) => { c.sab = clamp((c.sab || 0) + amt, 0, 1); if (s.tri) triShock(s, s.countries.indexOf(c), 4, amt * .8); }; // 破壊活動は秩序の負荷にもなる
   if (live.length) {
     const act = (k, thr, fn) => { const f = H.fac[k]; if (acts < 4 && str[k] > thr && f.pool >= FCOST[k]) { f.pool -= FCOST[k]; acts++; H.hist.attacks++; H.yr[k] = (H.yr[k] || 0) + 1; fn(); g.res = clamp(g.res - .06 * dmg, 0, 100); s.ai.trust = clamp(s.ai.trust - .3 * ph, 0, 100); } };
     // 反対派: 解体の進行を止める(作業妨害・停止した施設の再稼働による順序の混乱)。社会的動機があるので、尊厳に配慮した対応で弱まる
@@ -192,8 +198,8 @@ function hostileStep(s, sh, prog) {
     // 武装勢力: 危険な施設・遺産・野生動物・輸送への攻撃
     act("raid", .2, () => { const r = rnd(s), c = pick(), i = s.countries.indexOf(c);
       if (r < .28) { let tf = null; for (const f of s.facs) if (f.c === i && f.st < 2 && (f.t === 0 || f.t === 1) && (!tf || f.safety < tf.safety)) tf = f; if (!tf) for (const f of s.facs) if (f.c === i && f.st < 2 && (!tf || f.safety < tf.safety)) tf = f; if (tf) tf.safety = clamp(tf.safety - .22 * dmg, .02, .97); hit(c, .15 * dmg); H.hist.fac = (H.hist.fac || 0) + 1; }
-      else if (r < .46) { c.cut = clamp((c.cut || 0) + .22 * dmg, 0, .8); c.logi = clamp(c.logi - .04 * dmg, .1, .98); hit(c, .08 * dmg); H.hist.cuts = (H.hist.cuts || 0) + 1; } // 輸送網の遮断
-      else if (r < .58) { let tf = null; for (const f of s.facs) if (f.c === i && f.t === 3 && f.st < 2 && !f.rogue && (!tf || f.safety < tf.safety)) tf = f; if (tf && rnd(s) < .8 * dmg) { tf.rogue = true; H.hist.seized++; H.seizedNew++; addLog(s, `【占拠】${c.name}の${tf.n}が武装勢力に占拠された(管理下を離れた施設${s.facs.filter(f => f.rogue).length})。`, "acc"); } else hit(c, .1 * dmg); }
+      else if (r < .46) { c.cut = clamp((c.cut || 0) + .22 * dmg, 0, .8); if (s.tri) triShock(s, i, 1, .3 * dmg); c.logi = clamp(c.logi - .04 * dmg, .1, .98); hit(c, .08 * dmg); H.hist.cuts = (H.hist.cuts || 0) + 1; } // 輸送網の遮断
+      else if (r < .58) { let tf = null; for (const f of s.facs) if (f.c === i && f.t === 3 && f.st < 2 && !f.rogue && (!tf || f.safety < tf.safety)) tf = f; if (tf && rnd(s) < .8 * dmg) { tf.rogue = true; if (s.tri) triShock(s, i, 5, .25); H.hist.seized++; H.seizedNew++; addLog(s, `【占拠】${c.name}の${tf.n}が武装勢力に占拠された(管理下を離れた施設${s.facs.filter(f => f.rogue).length})。`, "acc"); } else hit(c, .1 * dmg); }
       else if (r < .72) { g.her = clamp(g.her - 2.2 * dmg, 0, 100); H.hist.heritage++; H.herNew++; const cand = s.sites.map((x, si) => [x, SITES[si]]).filter(([x, d]) => d && d.cid === c.id && x.st !== 3); if (cand.length) { const [x] = cand[Math.floor(rnd(s) * cand.length)]; x.cond = clamp(x.cond - .2 * dmg, 0, 1); } }
       else if (r < .86) { GROUPS.forEach((G, gi) => { if (G.wild) { const m = s.mam[gi], l = m.n * .03 * dmg; m.n -= l; m.dd += l; } }); g.bio = clamp(g.bio - .4 * dmg, 0, 100); H.hist.wild++; }
       else { g.res = clamp(g.res - .3 * dmg, 0, 100); for (const x of live) x.logi = clamp(x.logi - .015 * dmg, .1, .98); }
@@ -214,6 +220,8 @@ function stepYear(s) {
   const flow = g.flow = flowOf(s);
   const pol = s.policy, psum = Math.max(1, CHANNELS.reduce((a, [k]) => a + (channelOpen(s, k) ? (pol[k] || 0) : 0), 0));
   const sh = {}; for (const [k] of CHANNELS) sh[k] = prog && channelOpen(s, k) ? (pol[k] || 0) / psum : 0;
+  const TT = s.tri && prog ? triPre(s, sh, flow) : null; if (TT) for (const [k] of CHANNELS) if (!channelOpen(s, k)) sh[k] = 0; // 3AI体制: 3つの配分を混ぜ合わせた全体の配分(エリアごとの配分は TT.shA)
+  const careA = TT ? TT.shA.map((o, a) => 1 - Math.exp(-(flow * o.care * TT.W[a] * 3) / (8 + 14 * pr))) : null;
   const wl = WILDLAND[s.wildStance || "balanced"];
   const hum = clamp(1 - Math.max(0, (g.P0 * .6 - P)) / (g.P0 * .6), 0, 1);
 
@@ -266,6 +274,7 @@ function stepYear(s) {
   const insB = ai.insight / 100 * .1 * (yr > 2040 ? 1 : 0), mE = new Float64Array(nc), sabF = new Float64Array(nc), unrF = new Float64Array(nc);
   const prime = (ci) => { const c = s.countries[ci]; mE[ci] = clamp(c.m + insB, 0, 1); sabF[ci] = 1 + 1.5 * (c.sab || 0); unrF[ci] = 1 + 2 * c.unrest; };
   for (let ci = 0; ci < nc; ci++) prime(ci);
+  const maintF = TT ? s.tri.eq.map(e => 1 + .6 * Math.min(1, e.x[5] / 1.0)) : null; // 保守の限界に近い管理者のもとでは、事故が起きやすい
   let rs = s.rng;
   for (const fa of s.facs) {
     const ft = fa.t, st = fa.st, ci = fa.c;
@@ -277,7 +286,7 @@ function stepYear(s) {
     if (fa.rogue) sf = clamp(sf - .004, .02, .97); // 管理を離れた施設は手入れされず劣化する
     sf = clamp(sf + (st === 2 ? (mEff >= .3 ? .0005 : -.001) : .03 * (mEff - .55) - .0015), .02, .97);
     fa.safety = sf;
-    const k = st === 0 ? 1 : st === 1 ? .6 : .03, u1 = 1 - sf, p = haz * .02 * (u1 * u1 * u1) * k * (ft === 3 ? unrF[ci] : 1) * sabF[ci]; // 敵対勢力の破壊活動を受けた国の施設は、事故が起きやすい
+    const k = st === 0 ? 1 : st === 1 ? .6 : .03, u1 = 1 - sf, p = haz * .02 * (u1 * u1 * u1) * k * (ft === 3 ? unrF[ci] : 1) * sabF[ci] * (maintF ? maintF[fa.rp] : 1); // 敵対勢力の破壊活動を受けた国の施設は、事故が起きやすい
     rs = (rs + 0x6D2B79F5) | 0; let z = Math.imul(rs ^ (rs >>> 15), rs | 1); z ^= z + Math.imul(z ^ (z >>> 7), z | 61); // rnd(s)と同じ式(乱数の列は変えない)
     if (((z ^ (z >>> 14)) >>> 0) / 4294967296 < p) { s.rng = rs; fa.st = 3; accident(s, fa, s.countries[ci], st); rs = s.rng; prime(ci); }
   }
@@ -291,16 +300,18 @@ function stepYear(s) {
     s.reach = s.countries.map(reachOf);
     s.coop = (1 - .4 * war) * (1 - s.w9.indiv);
     const hpo = s.hostPolicy || HOST_POLICY_DEFAULT, slow = (hpo.diplomacy === "dialogue" ? .94 : 1) * (1 - .3 * (s.host.str ? s.host.str.opp : 0)) * (s.host.slow > 0 ? .95 : 1); if (s.host.slow > 0) s.host.slow--;
-    let budget = flow * (sh.decom + .6 * sh.disarm) * .8 * (.7 + .3 * ai.cap / 100) * s.coop * slow; // 反対派の妨害・対話の時間・事件後の停滞が、解体の進みを遅らせる
+    for (let gi = 0, nG = TT ? 3 : 1; gi < nG; gi++) {
+    const shg = TT ? TT.shA[gi] : sh; // 3AI体制では、施設の管理責任を持つAIごとに解体の予算と順序が決まる
+    let budget = flow * (TT ? TT.W[gi] : 1) * (shg.decom + .6 * shg.disarm) * .8 * (.7 + .3 * ai.cap / 100) * s.coop * slow; // 反対派の妨害・対話の時間・事件後の停滞が、解体の進みを遅らせる
     if (budget > 0) {
       // 優先度の高い順に予算が尽きるまで処理する。全件の整列はせず、ヒープで必要な分だけ取り出す(同点は施設の並び順=安定整列と同じ)
       const ks = [], fs = [];
       for (const fa of s.facs) {
-        if (fa.st > 1 || fa.rogue) continue;
+        if (fa.st > 1 || fa.rogue || (TT && (fa.rp ?? 0) !== gi)) continue;
         const c = s.countries[fa.c]; if (c.extinct || (c.pauseUntil || 0) > yr) continue;
-        const need = fa.t === 3 ? (sh.disarm > 0 ? .5 : .75) : fa.t === 0 ? .6 : fa.t === 4 ? .65 : .45; // 軍縮の協定があれば、軍事施設の停止への合意は得やすい
+        const need = fa.t === 3 ? (shg.disarm > 0 ? .5 : .75) : fa.t === 0 ? .6 : fa.t === 4 ? .65 : .45; // 軍縮の協定があれば、軍事施設の停止への合意は得やすい
         if (s.sovMode === "consent" && c.consent < need) continue;
-        ks.push(FACTYPES[fa.t].haz * (1.2 - fa.safety) + (fa.st === 1 ? 1 : 0) + decomBias(s.decomOrder, fa.t) + (fa.t === 3 && sh.disarm > 0 ? 2 : 0) + ((c.sab || 0) > .3 ? (rnd(s) - .5) * c.sab * 1.5 : 0)); fs.push(fa); // 妨害を受けた国では停止の順序が乱れる
+        ks.push(FACTYPES[fa.t].haz * (1.2 - fa.safety) + (fa.st === 1 ? 1 : 0) + decomBias(s.decomOrder, fa.t) + (fa.t === 3 && shg.disarm > 0 ? 2 : 0) + ((c.sab || 0) > .3 ? (rnd(s) - .5) * c.sab * 1.5 : 0)); fs.push(fa); // 妨害を受けた国では停止の順序が乱れる
       }
       const heap = ks.map((_, i) => i), before = (x, y) => ks[x] > ks[y] || (ks[x] === ks[y] && x < y);
       const down = (i, n) => { for (;;) { let m = i; const l = 2 * i + 1, r = l + 1; if (l < n && before(heap[l], heap[m])) m = l; if (r < n && before(heap[r], heap[m])) m = r; if (m === i) return; const t = heap[i]; heap[i] = heap[m]; heap[m] = t; i = m; } };
@@ -316,6 +327,7 @@ function stepYear(s) {
         }
         if (fa.prog >= T.cost - 1e-9) { fa.st = 2; fa.safety = Math.max(fa.safety, .8); g.res = clamp(g.res + T.cost * .003, 0, 100); }
       }
+    }
     }
     g.stopReady = clamp(g.stopReady + flow * sh.stop * .05, 0, 100);
     g.rsr = clamp(g.rsr + flow * sh.research * .012 * Math.pow(Math.max(pr, .02), .3) * (.5 + .5 * (spaceAll ? spaceRun / spaceAll : 0)), 0, 100);
@@ -350,6 +362,7 @@ function stepYear(s) {
   g.res = clamp(g.res - (.035 + .045 * (g.milLoad ?? 1) + .02 * (g.transLoad ?? 1)) * (gdpSum / g.gdp0) * (1 - g.res / 130), 0, 100); // 消費の内訳: 基礎・軍事・輸送(軍縮と集約で後ろの二つが減る)
   hostileStep(s, sh, prog);
   stepW9(s, sh, flow);
+  if (TT) triStep(s, flow, TT);
   if (g.med > 0) g.res = clamp(g.res - .02 * g.med * (P > 0 ? s.countries.reduce((a, c) => a + c.o, 0) / P : 0) * (1 - .6 * (g.medEff || 0)), 0, 100); // 長寿の費用: 介護と医療
   g.res = clamp(g.res - .0004 * g.mach, 0, 100); // 機械の増産は短期には資源を使う(長期には解体の自動化で返る)
   for (const c of s.countries) warLoad += c.unrest * cpop(c) / Math.max(1, P);
@@ -367,8 +380,9 @@ function stepYear(s) {
     c.aware += (rawAware - c.aware) * .15;
     const stab = clamp(c.def.dev * .5 + c.logi * .5, 0, 1);
     const satis = Math.min(1, c.en) * (.5 + .5 * c.logi);
-    c.health = clamp(c.health + ((.3 + .5 * c.def.dev) * .6 + .25 * satis + .15 * care * (prog ? 1 : .3) - c.health) * .1, .1, 1);
-    const tgtH = clamp(.30 + .25 * satis + .2 * (1 - c.unrest) + .15 * c.health + .08 * (g.med || 0) - .02 * (g.cons || 0) / 100 * (1 - (g.accept || 0)) + .1 * g.sov + .1 * (ai.trust / 100) - .35 * c.aware * (1 - care * .85) + g.hMod - .12 * wl * Math.max(0, pr - .35), .03, .95);
+    const careX = careA ? careA[c.area ?? 0] : care;
+    c.health = clamp(c.health + ((.3 + .5 * c.def.dev) * .6 + .25 * satis + .15 * careX * (prog ? 1 : .3) - c.health) * .1, .1, 1);
+    const tgtH = clamp(.30 + .25 * satis + .2 * (1 - c.unrest) + .15 * c.health + .08 * (g.med || 0) - .02 * (g.cons || 0) / 100 * (1 - (g.accept || 0)) + .1 * g.sov + .1 * (ai.trust / 100) - .35 * c.aware * (1 - careX * .85) + g.hMod - .12 * wl * Math.max(0, pr - .35), .03, .95);
     c.happy += (tgtH - c.happy) * .2;
     c.unrest = clamp(c.unrest + .06 * (.5 - c.happy) + .02 * (c.aware > .5 && !prog ? c.aware - .5 : 0) - .01 * ai.align / 100 * .5, 0, 1);
     const ctgt = clamp(.15 + .5 * c.aware * (prog ? 1 : .2) + .25 * ai.trust / 100 + .1 * g.sov - .25 * c.unrest, 0, 1);
@@ -379,7 +393,7 @@ function stepYear(s) {
     c.tfr += (tfT - c.tfr) * .02;
     const ex = (c.ex ?? (c.ex = exposureOf(c.id))) * (1 - .97 * (g.shel || 0)), resil = clamp(.5 * c.def.dev + .3 * c.logi + .2 * (1 - c.unrest), 0, 1);
     const lullBoost = g.lull * (.5 + .5 * c.happy);
-    const hopeT = clamp(.95 + .1 * (g.accept || 0) - .82 * c.aware * (1 - lullBoost - .85 * (g.accept || 0) * (g.accept || 0)) + .2 * care + (g.res > 55 ? .06 : 0) + .15 * (c.happy - .5) - .1 * c.unrest, .05, 1.25);
+    const hopeT = clamp(.95 + .1 * (g.accept || 0) - .82 * c.aware * (1 - lullBoost - .85 * (g.accept || 0) * (g.accept || 0)) + .2 * careX + (g.res > 55 ? .06 : 0) + .15 * (c.happy - .5) - .1 * c.unrest, .05, 1.25);
     c.hope = (c.hope ?? 1.05) + (hopeT - (c.hope ?? 1.05)) * .08;
     const hopeF = (.12 + 1.15 * Math.pow(c.hope, 1.4)) / (.12 + 1.15 * Math.pow(1.05, 1.4));
     const strain = 1 - clamp(.6 * Math.pow(g.astro, 2) * ex * (1 - .4 * resil) + .035 * (g.shel || 0) * g.astro * g.astro, 0, .9); // 遮蔽は万能ではなく、強まる原因の一部は通り抜ける // 天文現象の影響(地域の遮蔽と社会の強さで差が出る)
