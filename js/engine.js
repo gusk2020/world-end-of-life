@@ -3,11 +3,11 @@ import { COUNTRY_DEFS, FACTYPES } from "./data.js";
 import { SITES, initSites, stepSites, siteScore, siteSummary, setSite, applySitePolicy, undecided } from "./heritage.js";
 import { cityNarratives, decadeNarrative, cityOf, era } from "./narrative.js";
 import { rnd } from "./rng.js";
-import { autoPolicyTri, triPre, triStep, initTriad as initTriad0, shock as triShock, triSummary, forecast as triForecast, AREAS, AREA_OF, AREA_BY_COLOR, SUB as TRI_SUB, fairness as triFairness, contiguous as triContiguous, polOf as triPolOf, KEYS as TRI_KEYS } from "./triad.js";
+import { autoPolicyTri, triPre, triStep, initTriad as initTriad0, shock as triShock, triSummary, forecast as triForecast, triCauses, causeText, causeShort, AREAS, AREA_OF, AREA_BY_COLOR, SUB as TRI_SUB, fairness as triFairness, contiguous as triContiguous, polOf as triPolOf, KEYS as TRI_KEYS } from "./triad.js";
 import { W9_DEFAULT, stepW9, channelOpen, askEvents, retroUnlock, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance, newMarks, markSeen, WIN, btStatus } from "./world9.js";
 import { GROUPS, WILDLAND, initMammals, mammalN0, mammalTotals, wildAlive, exposureOf, stepAstro, coreFailRate, stepMammals, ecoFunction, mammalScore } from "./life.js";
 export { GROUPS, mammalTotals, mammalScore, wildAlive, coreFailRate, ecoFunction };
-export { triSummary, triForecast, AREAS, AREA_OF, AREA_BY_COLOR, TRI_SUB, triFairness, triContiguous, triPolOf, TRI_KEYS };
+export { triSummary, triCauses, causeText, causeShort, triForecast, AREAS, AREA_OF, AREA_BY_COLOR, TRI_SUB, triFairness, triContiguous, triPolOf, TRI_KEYS };
 export function initTriad(s, color, pref) { return initTriad0(s, AREA_BY_COLOR[color] ?? 0, pref); } // 色=担当するAIとエリア。ここで3AI体制が始まる
 export { W9_DEFAULT, channelOpen, canEdit, siteOpen, unlocked, UNLOCKS, EPISODES, BT, MIRACLE_KINDS, miracleChance, newMarks, markSeen, WIN, btStatus };
 // 解放済みの遺産だけに、一括の方針を当てる(未解放の遺産は選べない)

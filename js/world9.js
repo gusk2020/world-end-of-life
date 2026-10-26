@@ -63,7 +63,7 @@ function disaster(o) {
       if (first || o.every) { lose(c, o.loss * k * (first ? 1 : .3)); c.logi = cl(c.logi - o.logi * k, .1, .98); c.unrest = cl(c.unrest + .02 * k, 0, 1); c.happy = cl(c.happy - .03 * k, 0, 1); if (o.cut) c.cut = cl((c.cut || 0) + o.cut * k, 0, .8); g.res = cl(g.res - o.res * k, 0, 100); }
       if (first) {
         if (o.fac) { const i = s.countries.indexOf(c); let n = 0; for (const f of s.facs) if (f.c === i && o.fac.t.includes(f.t) && f.st < 3) { f.safety = cl(f.safety - o.fac.d * k, .02, .97); n++; } ep.facHit = n; }
-        if (s.tri && o.eq) for (const [kk, am] of o.eq) shock(s, ep.t[0], kk, am * ep.sev); // 均衡の法則へ接続: 災害は負荷として蓄積する
+        if (s.tri && o.eq) for (const [kk, am] of o.eq) shock(s, ep.t[0], kk, am * ep.sev, o.name); // 均衡の法則へ接続: 災害は負荷として蓄積する
         if (o.her) g.her = cl(g.her - o.her * k, 0, 100);
         if (o.bio) g.bio = cl(g.bio - o.bio * k, 0, 100);
         if (o.wild) for (let gi = 0; gi < s.mam.length; gi++) if (gi < 4) { const m = s.mam[gi], l = m.n * o.wild * k; m.n -= l; m.dd += l; }

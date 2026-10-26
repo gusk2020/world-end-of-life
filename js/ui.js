@@ -81,7 +81,7 @@ const PCH = Object.fromEntries(E.CHANNELS);
 function nowBox() { // 初期表示の要点: 代表値・兆候・直近の重要な出来事・自分の方針
   const el = $("nowbox"); if (S.year < E.PROGRAM || afterMode) { el.hidden = true; return; }
   const P0 = E.total(S), parts = [`人類 ${fmtN(P0)}人`, `資源 ${S.g.res.toFixed(0)}`]; let warn = "", last = "";
-  if (S.tri) { const fc = E.triForecast(S), x = fc.items[0]; warn = x.est >= .5 ? `兆候: ${x.name}が${x.est >= .8 ? "限界に近い" : "苦しくなっている"}(予測)` : "兆候: 目立ったものはなし(予測)"; const c = (S.tri.cause || [])[S.tri.cause ? S.tri.cause.length - 1 : 0]; last = c ? `直近: ${c.y}年 ${c.short}` : ""; }
+  if (S.tri) { const fc = E.triForecast(S), x = fc.items[0]; warn = x.est >= .5 ? `兆候: ${x.name}が${x.est >= .8 ? "限界に近い" : "苦しくなっている"}(予測)` : "兆候: 目立ったものはなし(予測)"; const c = E.triCauses(S, 1, 40)[0]; last = c ? `直近の重要な出来事: ${E.causeShort(c)}` : ""; }年 ${c.short}` : ""; }
   const keys = openKeys(), v = normalize100(S.policy, keys), top = keys.slice().sort((a, b) => v[b] - v[a]).slice(0, 3).map(k => `${PCH[k]} ${v[k]}%`).join("・");
   const html = `<div><b>${parts.join(" / ")}</b></div>${warn ? `<div>${warn}</div>` : ""}${last ? `<div>${last}</div>` : ""}<div>方針: <b>${nearestPreset(S.policy)}</b>(${top}) <button class="link" id="tochg">変える</button></div>`;
   el.hidden = false; if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; const b = $("tochg"); if (b) b.onclick = () => show("policy"); }
@@ -286,6 +286,10 @@ function radar(m, tr) {
   const lb = I.METRICS.map(([k, name], i) => { const [x, y] = pt(i, R + 14); const t = tr ? (tr[k] > .5 ? "▲" : tr[k] < -.5 ? "▼" : "→") : ""; return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${name}${m[k].toFixed(0)}${t}</text>`; }).join("");
   return `<svg class="radar" viewBox="0 0 240 170" width="100%" role="img" aria-label="7つの指標">${ax}<polygon class="poly" points="${poly}"/>${lb}</svg>`;
 }
+function causeList() {
+  const cs = E.triCauses(S, 6, 80); if (!cs.length) return '<div class="small">まだ目立った出来事はありません。起きると、原因・行動・結果が実際の変化つきでここに残ります。</div>';
+  return cs.map(c => `<details class="cz"><summary>${E.causeShort(c)}</summary><div class="small">${E.causeText(c)}</div></details>`).join("");
+}
 function triCard() {
   if (!S.tri) return S.year >= E.PROGRAM ? `<div class="card small">この世界は旧版のセーブ(単一のAI)として読み込まれています。3AI体制の機能は使えません。新しい世界を始めると3AI体制になります。</div>` : "";
   if (S.year < E.PROGRAM) return "";
@@ -294,6 +298,7 @@ function triCard() {
   const goal = `長期の目標: 人類を可能な限り長く存続させる(幸福・安全・自然・文化を犠牲にするだけの延命は別の帰結)。`;
   return stopped + `<h3>${me.name}のAI(${{ blue: "青", green: "緑", orange: "橙" }[me.key]})</h3><div class="small">予測は予測、実績は実績として分けています。観測の精度 ${(fc.q * 100).toFixed(0)}%(研究と経験で上がる)。</div>
   <div class="sub">崩壊の兆候(予測・揺らぎあり)</div>${bars}
+  <div class="sub">3つのAIの重要な出来事(原因→行動→結果)</div>${causeList()}
   <div class="sub">実績</div><div class="kv"><span>崩壊した回数(自分のエリア)</span><span>${t.eq[t.player].n}</span><span>布石が効いた回数(世界)</span><span>${t.stat.saved}</span><span>人口移動(累計)</span><span>${(t.stat.migrants / 1e4).toFixed(0)}万人</span><span>援助/制裁/侵略</span><span>${t.stat.aid.toFixed(0)} / ${t.stat.sanctions || 0} / ${t.stat.wars}</span></div>
   ${tr.length ? `<div class="sub">過去の布石が効いた記録</div>${tr.map(x => `<div class="small">${x.y}年 ${x.text}</div>`).join("")}` : ""}
   <div class="sub">AI間の重要な交流</div>${news.length ? news.map(x => `<div class="small">${x.y}年 ${x.t}</div>`).join("") : '<div class="small">まだ大きな動きはありません。</div>'}
