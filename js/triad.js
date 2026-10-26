@@ -67,13 +67,13 @@ const EFFECT = [ // 崩壊したときの被害(σは崩壊の大きさ)
   (s, cs, sg, a) => { for (const f of s.facs) if (f.rp === a && f.st < 3) f.safety = cl(f.safety - .05 * sg, .02, .97); },
 ];
 function lose(c, f) { c.y *= 1 - f; c.a *= 1 - f; c.o *= 1 - f; }
-const newEq = (a, s) => { const x = [], cap = BASE_CAP[a].slice(); for (let k = 0; k < 6; k++) x.push(rnd(s) * rnd(s) * 1.5 * THETA[k]); return { x, cap, l: [0, 0, 0, 0, 0, 0], r: [0, 0, 0, 0, 0, 0], ld: [0, 0, 0, 0, 0, 0], sh: [0, 0, 0, 0, 0, 0], n: 0, slips: [], rec: 0 }; };
+const newEq = (a, s) => { const x = [], cap = BASE_CAP[a].slice(); for (let k = 0; k < 6; k++) x.push(rnd(s) * rnd(s) * 1.5 * THETA[k]); return { x, cap, l: [0, 0, 0, 0, 0, 0], r: [0, 0, 0, 0, 0, 0], ld: [0, 0, 0, 0, 0, 0], sh: [0, 0, 0, 0, 0, 0], n: 0, slips: [], rec: 0, saved: 0, src: {}, pk: [0, 0, 0, 0, 0, 0], lastNote: {}, lastRec: {}, firstR: {} }; };
 
 // ---------- 状態 ----------
 const VAL0 = [{ safety: .8, dignity: 1.3, nature: .9, heritage: .6, growth: 1.2, wild: .8 }, { safety: 1.4, dignity: .9, nature: .6, heritage: 1.2, growth: .7, wild: .5 }, { safety: 1.0, dignity: .7, nature: .7, heritage: .8, growth: 1.4, wild: .4 }];
 const POL0 = { research: 15, care: 25, decom: 25, stop: 10, eco: 15, heritage: 10, wild: 8, guard: 5, disarm: 0, consol: 0 };
 export function initTriad(s, player, pref) {
-  const tri = { v: 1, player, ai: [], res: [], mig: [], eq: [], trace: [], news: [], last: {}, op: { audit: 0.5, abuse: 0 }, ov: { stops: 0, vetoes: 0, caught: 0 }, trade: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], stat: { migrants: 0, aid: 0, wars: 0, transfers: 0, slips: 0, saved: 0 } };
+  const tri = { v: 1, player, ai: [], res: [], mig: [], eq: [], trace: [], news: [], last: {}, op: { audit: 0.5, abuse: 0 }, ov: { stops: 0, vetoes: 0, caught: 0 }, trade: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], stat: { migrants: 0, aid: 0, wars: 0, transfers: 0, slips: 0, saved: 0, aidNote: -99, arrived: 0, invReq: 0, last: 0, liabNote: -99, lost: 0, migCause: {}, migNote: -99, noCand: 0, sanctions: 0, techNote: -99, tryInv: 0 } };
   for (const c of s.countries) { c.area = AREA_OF[c.id] ?? 0; }
   for (const f of s.facs) f.rp = s.countries[f.c].area;
   for (let a = 0; a < 3; a++) {
@@ -189,7 +189,7 @@ function equilibrium(s, st, P, shA, W) {
   const t = s.tri;
   for (let a = 0; a < 3; a++) {
     if (st[a].pop < 1000) continue; // 無人のエリアでは均衡の計算を止める
-    const eq = t.eq[a], ld = loads(s, a, st, P), cs = s.countries.filter(c => (c.area ?? 0) === a && !c.extinct), sh = shA[a];
+    const eq = t.eq[a], ld = loads(s, a, st, P), sh = shA[a]; let csM = null; const csGet = () => csM || (csM = s.countries.filter(c => (c.area ?? 0) === a && !c.extinct));
     // 予備の蓄え(布石): 配分が続くと育ち、使われなければゆっくり目減りする
     for (let k = 0; k < 6; k++) { let b = 0; for (const key in RES_W[k]) b += RES_W[k][key] * (sh[key] || 0); eq.r[k] = cl(eq.r[k] * .996 + .022 * b * (st[a].pop > 0 ? 1 : 0), 0, .3); }
     const carry = [0, 0, 0, 0, 0, 0];
@@ -205,7 +205,7 @@ function equilibrium(s, st, P, shA, W) {
       if (eq.l[k] >= .45) eq.x[k] = Math.min(eq.x[k], .5 * THETA[k]); // 損失が限界まで進んだ部分は、崩壊を繰り返さず、低い水準で固定される
       if (eq.x[k] > THETA[k]) { // 臨界: 崩壊(大きさ σ)。ひずみは解放され、一部は戻らない損失になる
         const sg = (eq.x[k] - THETA[k]) + .25 * THETA[k]; eq.x[k] = THETA[k] * .35; eq.l[k] = cl(eq.l[k] + PHI[k] * sg, 0, .5);
-        EFFECT[k](s, cs, sg, a); eq.sh[k] = Math.min(.5, eq.sh[k] + .1 * sg); eq.n++; t.stat.slips++; eq.slips.push({ y: s.year, k, sg: +sg.toFixed(2) }); if (eq.slips.length > 12) eq.slips.shift();
+        EFFECT[k](s, csGet(), sg, a); eq.sh[k] = Math.min(.5, eq.sh[k] + .1 * sg); eq.n++; t.stat.slips++; eq.slips.push({ y: s.year, k, sg: +sg.toFixed(2) }); if (eq.slips.length > 12) eq.slips.shift();
         for (let j = 0; j < 6; j++) if (COUP[k][j]) carry[j] += COUP[k][j] * sg;
         // 他エリアへの波及: 医療・秩序の崩壊は難民と不安を隣へ送る
         if (sg > .35 && (k === 2 || k === 4 || k === 3)) for (let b = 0; b < 3; b++) if (b !== a) t.eq[b].x[4] += .08 * sg * (adjArea(a, b) ? 1 : .4);

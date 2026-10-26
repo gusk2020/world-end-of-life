@@ -81,7 +81,7 @@ const PCH = Object.fromEntries(E.CHANNELS);
 function nowBox() { // 初期表示の要点: 代表値・兆候・直近の重要な出来事・自分の方針
   const el = $("nowbox"); if (S.year < E.PROGRAM || afterMode) { el.hidden = true; return; }
   const P0 = E.total(S), parts = [`人類 ${fmtN(P0)}人`, `資源 ${S.g.res.toFixed(0)}`]; let warn = "", last = "";
-  if (S.tri) { const fc = E.triForecast(S), x = fc.items[0]; warn = x.est >= .5 ? `兆候: ${x.name}が${x.est >= .8 ? "限界に近い" : "苦しくなっている"}(予測)` : "兆候: 目立ったものはなし(予測)"; const c = E.triCauses(S, 1, 40)[0]; last = c ? `直近の重要な出来事: ${E.causeShort(c)}` : ""; }年 ${c.short}` : ""; }
+  if (S.tri) { const fc = E.triForecast(S), x = fc.items[0]; warn = x.est >= .5 ? `兆候: ${x.name}が${x.est >= .8 ? "限界に近い" : "苦しくなっている"}(予測)` : "兆候: 目立ったものはなし(予測)"; const c = E.triCauses(S, 1, 40)[0]; last = c ? `直近の重要な出来事: ${E.causeShort(c)}` : ""; }
   const keys = openKeys(), v = normalize100(S.policy, keys), top = keys.slice().sort((a, b) => v[b] - v[a]).slice(0, 3).map(k => `${PCH[k]} ${v[k]}%`).join("・");
   const html = `<div><b>${parts.join(" / ")}</b></div>${warn ? `<div>${warn}</div>` : ""}${last ? `<div>${last}</div>` : ""}<div>方針: <b>${nearestPreset(S.policy)}</b>(${top}) <button class="link" id="tochg">変える</button></div>`;
   el.hidden = false; if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; const b = $("tochg"); if (b) b.onclick = () => show("policy"); }

@@ -15,15 +15,19 @@ export function era(s) {
 
 // 国ごとの縮退描写(閾値を初めて下回った時に1回)
 const STEPS = [[.5, "half"], [.2, "fifth"], [.05, "twentieth"], [.005, "last"]];
+const FK = new WeakMap(); // 旗の名前は国×段階で固定なので、国ごとに一度だけ組み立てる
+const flagKeys = (c) => { let v = FK.get(c); if (!v) FK.set(c, v = STEPS.map(([, key]) => "nar:" + c.id + ":" + key)); return v; };
 export function cityNarratives(s, emit) {
   if (s.year < 2060) return;
   let n = 0;
   for (const c of s.countries) {
     if (c.extinct && s.flags["nar:" + c.id + ":gone"]) continue;
-    const r = cp(c) / c.P0, city = cityOf(c.id);
+    const r = cp(c) / c.P0; if (!c.extinct && r > STEPS[0][0]) continue; const city = cityOf(c.id);
     if (c.extinct && !s.flags["nar:" + c.id + ":gone"]) { s.flags["nar:" + c.id + ":gone"] = 1; if (n++ < 3) emit(`${c.name}で最後の住人が亡くなった。${city}の灯りは、${s.g.mach > 25 ? "無人の機械だけが点検して回る" : "誰にも見られないまま消えた"}。`); continue; }
-    for (const [th, key] of STEPS) {
-      const f = "nar:" + c.id + ":" + key;
+    if (r > STEPS[0][0]) continue; // 最初の閾値(半分)を下回っていなければ、以降の閾値の確認(文字列の組み立て)は要らない
+    const fk = flagKeys(c);
+    for (let si = 0; si < STEPS.length; si++) {
+      const th = STEPS[si][0], key = STEPS[si][1], f = fk[si];
       if (r > th || s.flags[f]) continue;
       s.flags[f] = 1; if (n++ >= 3) continue;
       const care = s.policy.care / Math.max(1, Object.values(s.policy).reduce((a, b) => a + b, 0)) > .3;
