@@ -343,7 +343,6 @@ function statusView() {
 // ---------- 方針(進行モード・価値観・下書き→見込み→適用) ----------
 const CH_NOTE = { disarm: "軍事施設の停止を進め、軍の予算・人員・技術を医療と輸送へ回す。資源と医療が改善し、社会が安定する/反面、国家間の不信で協定が崩れる恐れ・軍需産業の失業・武装勢力への守りの薄さ/数十年かけて効く", consol: "人口の減った地域を計画的に畳み、居住域と交通網を集める。輸送と維持の費用が減り、放棄地が自然に戻る/反面、強制的な移住への反発・地域文化の喪失・過密による感染症と災害の脆弱さ", research: "短期:効果は薄い/長期:方舟の可能性とAIコアの遮蔽/時間差:数十年", care: "短期:幸福と希望が上がる/長期:穏やかな最期、出生の持ち直しにも寄与/副作用:資源を消費", decom: "短期:危険施設が減る/長期:事故の根を断つ/時間差:年単位で進む", stop: "短期:見えにくい/長期:機械を止められる/時間差:数十年", eco: "短期:緩やか/長期:自然の回復を早める", heritage: "短期:資源消費/長期:遺産が残る", wild: "短期:野生の福祉と生息地が改善/長期:絶滅を遅らせる(避けられない)/副作用:人類の終活に使える資源が減る" };
 const MODE_DESC = { manual: "重要イベントごとに停止し、あなたが選ぶ。", semi: "国家・地域の人口減少に伴う縮退対応(都市の縮退・国家運営の委任・最後の学校・最後の街)だけ自動。それ以外は停止。", auto: "原則すべてのイベントと配分をAIが自動処理。理由と結果はログと「自動判断」に残る。" };
-function sumP(p) { return Math.max(1, Object.values(p).reduce((a, b) => a + (b || 0), 0)); }
 function ensureDraft() { if (!draft) draft = { policy: { ...S.policy }, sovMode: S.sovMode, machStance: S.machStance, focus: S.ai.focus, wildStance: S.wildStance, decomOrder: S.decomOrder || "hazard", hostPolicy: { ...(S.hostPolicy || E.HOST_POLICY_DEFAULT) } }; }
 const dirty = () => draft && (JSON.stringify(draft.policy) !== JSON.stringify(S.policy) || draft.sovMode !== S.sovMode || draft.machStance !== S.machStance || draft.focus !== S.ai.focus || draft.wildStance !== S.wildStance || draft.decomOrder !== (S.decomOrder || "hazard") || JSON.stringify(draft.hostPolicy) !== JSON.stringify(S.hostPolicy || E.HOST_POLICY_DEFAULT));
 function prefBars() {
@@ -392,7 +391,6 @@ function winBanner() {
   if (w.win.open) return `<div class="card small winon"><b>● 変更機会</b>: ${w.win.until}年まで、方針と遺産の設定を変えられます。変えなければ今の方針のまま進みます。</div>`;
   return `<div class="card small winoff"><b>全自動: いまは設定を変更できません</b><br>次の変更機会は${w.next}年ごろ(新しい機能が解放されたときも開きます)。それまでは今の方針で自動的に進みます。すぐ変えたいときは、進行モードを手動か半自動にしてください。</div>`;
 }
-const pct = (v) => Math.round(Math.max(0, Math.min(1, v)) * 100);
 function challengeHTML() {
   if (!E.unlocked(S, "bt")) return `<h3>存続への挑戦</h3><div class="card small locked">🔒 未解放。解放条件: ${E.UNLOCKS.find(u => u.id === "bt").why}</div>`;
   const st = E.btStatus(S);
@@ -590,10 +588,6 @@ function backupSlot(t) { try { const raw = localStorage.getItem(SV.slotKey(t)); 
 function assignColor(i) {
   const t = ORB_COLORS[i][0]; $("modal").hidden = true;
   orbs.select(i).then(() => { const was = settings.theme; applyTheme(t); S.unassigned = false; if (!S.tri) E.initTriad(S, t, E.prefProfile(S).vec); if (!saveActive()) { S.unassigned = true; applyTheme(was); orbs.clearSelect(); return askModal("<h2>保存できませんでした</h2><p class=\"body\">容量が足りないため、色を決められませんでした。手動バックアップ枠などを整理してからやり直してください。</p>", [["色を選び直す", colorChoice]], true); } try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } if (slotNote) { E.addLogPublic(S, slotNote, "sys"); slotNote = ""; } startBuild(); });
-}
-function continueExisting(i) {
-  const t = ORB_COLORS[i][0]; $("modal").hidden = true;
-  orbs.select(i).then(() => { const r = SV.read(localStorage, SV.slotKey(t)); if (r.status !== "ok" && r.status !== "recovered") { orbs.clearSelect(); return colorChoice(); } try { localStorage.removeItem(PRE_KEY); localStorage.removeItem(PRE_KEY + ".prev"); } catch { } applyTheme(t); orbs.clearSelect(); adopt(r.state, `${TN[t]}の世界を続きから開きました。一時停止中です。`); });
 }
 function startBuild() {
   if (build) return; holdPrelude = true; preludeOn = true; syncPrelude(); orbs.clearSelect();

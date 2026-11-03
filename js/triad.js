@@ -85,7 +85,6 @@ export function initTriad(s, player, pref) {
   s.tri = tri; tri.ai[player].policy = null; // 主人公のAIの配分は s.policy
   return tri;
 }
-export const areaOfCountry = (s, c) => c.area ?? 0;
 export const polOf = (s, a) => (s.tri.ai[a].core === 0 || (s.tri.ai[a].vac > 0 && a !== s.tri.player)) ? provisional : (a === s.tri.player ? s.policy : s.tri.ai[a].policy);
 const provisional = { research: 5, care: 30, decom: 20, stop: 5, eco: 10, heritage: 5, wild: 5, guard: 10, disarm: 0, consol: 0 }; // 管理が空白の間の、人間組織による暫定の管理
 const note = (s, text, kind = "tri") => { s.log.push({ y: s.year, t: text, k: kind }); if (s.log.length > 1500) s.log.splice(0, 200); const t = s.tri; t.news.push({ y: s.year, t: text }); if (t.news.length > 40) t.news.shift(); };

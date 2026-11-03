@@ -479,7 +479,6 @@ export function fmtPop(p) { return p >= 1e8 ? (p / 1e8).toFixed(1) + "億人" : 
 const setP = (s, pr) => { s.policy = { ...PRESETS[pr], guard: s.policy.guard || 0 }; };
 const trust = (s, d) => { s.ai.trust = clamp(s.ai.trust + d, 0, 100); };
 const allC = (s, f) => { for (const c of s.countries) f(c); };
-const maxFac = (s, t) => { let b = null; for (const f of s.facs) if (f.t === t && f.st === 0 && (!b || f.safety < b.safety)) b = f; return b; };
 const oldFac = (s) => { let b = null; for (const f of s.facs) if (f.st === 0 && f.t === 0 && s.countries[f.c].m < .6 && f.safety < .45 && (!b || f.safety < b.safety)) b = f; return b; };
 
 const meanHappy = (s) => { let w = 0, t = 0; for (const c of s.countries) { const p = cpop(c); t += p; w += c.happy * p; } return t ? w / t : 1; };
