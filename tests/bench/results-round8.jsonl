@@ -1,0 +1,12 @@
+{"label":"第6次(旧)×100 CPU×1","url":"http://localhost:8766/index.html","speedButton":4,"cpuSlowdown":1,"seconds":3,"yearsPerSec":100.4,"fps":45.8,"frameGapP95ms":33,"frameGapMaxMs":50,"heapMB":-0.5,"ended":false}
+{"label":"第7次 ×1000 CPU×1","url":"http://localhost:8767/index.html","speedButton":4,"cpuSlowdown":1,"seconds":3,"yearsPerSec":305.2,"fps":31.2,"frameGapP95ms":217,"frameGapMaxMs":467,"heapMB":2.8,"ended":true}
+{"label":"第8次 button1 CPU×1","url":"http://localhost:8765/index.html","speedButton":1,"cpuSlowdown":1,"seconds":3,"yearsPerSec":25.2,"fps":60.4,"frameGapP95ms":17,"frameGapMaxMs":17,"heapMB":-3.5,"ended":false}
+{"label":"第8次 button2 CPU×1","url":"http://localhost:8765/index.html","speedButton":2,"cpuSlowdown":1,"seconds":3,"yearsPerSec":102.2,"fps":59.2,"frameGapP95ms":17,"frameGapMaxMs":33,"heapMB":-4.5,"ended":false}
+{"label":"第8次 button3 CPU×1","url":"http://localhost:8765/index.html","speedButton":3,"cpuSlowdown":1,"seconds":3,"yearsPerSec":257.3,"fps":59.9,"frameGapP95ms":17,"frameGapMaxMs":50,"heapMB":-1.4,"ended":false}
+{"label":"第8次 button4 CPU×1","url":"http://localhost:8765/index.html","speedButton":4,"cpuSlowdown":1,"seconds":3,"yearsPerSec":365,"fps":51.2,"frameGapP95ms":50,"frameGapMaxMs":67,"heapMB":2.4,"ended":true}
+{"label":"第6次(旧)×100 CPU×4","url":"http://localhost:8766/index.html","speedButton":4,"cpuSlowdown":4,"seconds":3,"yearsPerSec":82,"fps":3.5,"frameGapP95ms":417,"frameGapMaxMs":417,"heapMB":1.6,"ended":false}
+{"label":"第7次 ×1000 CPU×4","url":"http://localhost:8767/index.html","speedButton":4,"cpuSlowdown":4,"seconds":3,"yearsPerSec":134.5,"fps":0.7,"frameGapP95ms":1767,"frameGapMaxMs":1767,"heapMB":2.8,"ended":false}
+{"label":"第8次 button1 CPU×4","url":"http://localhost:8765/index.html","speedButton":1,"cpuSlowdown":4,"seconds":3,"yearsPerSec":26.5,"fps":23.2,"frameGapP95ms":117,"frameGapMaxMs":133,"heapMB":-3.6,"ended":false}
+{"label":"第8次 button2 CPU×4","url":"http://localhost:8765/index.html","speedButton":2,"cpuSlowdown":4,"seconds":3,"yearsPerSec":106.7,"fps":7.5,"frameGapP95ms":217,"frameGapMaxMs":250,"heapMB":-2.7,"ended":false}
+{"label":"第8次 button3 CPU×4","url":"http://localhost:8765/index.html","speedButton":3,"cpuSlowdown":4,"seconds":3,"yearsPerSec":132,"fps":10.6,"frameGapP95ms":183,"frameGapMaxMs":233,"heapMB":-3.3,"ended":false}
+{"label":"第8次 button4 CPU×4","url":"http://localhost:8765/index.html","speedButton":4,"cpuSlowdown":4,"seconds":3,"yearsPerSec":141.2,"fps":10.2,"frameGapP95ms":183,"frameGapMaxMs":200,"heapMB":-3.4,"ended":false}

@@ -1,0 +1,10 @@
+{"label":"第8次 ×1000 CPU×1","url":"http://localhost:8768/index.html","speedButton":4,"cpuSlowdown":1,"seconds":3,"yearsPerSec":361.7,"fps":52.9,"frameGapP95ms":50,"frameGapMaxMs":83,"heapMB":4.9,"ended":true}
+{"label":"第9次 button1 CPU×1","url":"http://localhost:8765/index.html","speedButton":1,"cpuSlowdown":1,"seconds":3,"yearsPerSec":25.2,"fps":60.4,"frameGapP95ms":17,"frameGapMaxMs":17,"heapMB":-3,"ended":false}
+{"label":"第9次 button2 CPU×1","url":"http://localhost:8765/index.html","speedButton":2,"cpuSlowdown":1,"seconds":3,"yearsPerSec":101.9,"fps":59.4,"frameGapP95ms":17,"frameGapMaxMs":33,"heapMB":-2.9,"ended":false}
+{"label":"第9次 button3 CPU×1","url":"http://localhost:8765/index.html","speedButton":3,"cpuSlowdown":1,"seconds":3,"yearsPerSec":256.4,"fps":57.1,"frameGapP95ms":17,"frameGapMaxMs":50,"heapMB":0.7,"ended":false}
+{"label":"第9次 button4 CPU×1","url":"http://localhost:8765/index.html","speedButton":4,"cpuSlowdown":1,"seconds":3,"yearsPerSec":445.9,"fps":47.6,"frameGapP95ms":67,"frameGapMaxMs":83,"heapMB":3,"ended":true}
+{"label":"第8次 ×1000 CPU×4","url":"http://localhost:8768/index.html","speedButton":4,"cpuSlowdown":4,"seconds":3,"yearsPerSec":248.3,"fps":11.6,"frameGapP95ms":150,"frameGapMaxMs":183,"heapMB":-0.1,"ended":false}
+{"label":"第9次 button1 CPU×4","url":"http://localhost:8765/index.html","speedButton":1,"cpuSlowdown":4,"seconds":3,"yearsPerSec":26.7,"fps":42.1,"frameGapP95ms":50,"frameGapMaxMs":133,"heapMB":1.5,"ended":false}
+{"label":"第9次 button2 CPU×4","url":"http://localhost:8765/index.html","speedButton":2,"cpuSlowdown":4,"seconds":3,"yearsPerSec":103.7,"fps":15.7,"frameGapP95ms":167,"frameGapMaxMs":367,"heapMB":-2.7,"ended":false}
+{"label":"第9次 button3 CPU×4","url":"http://localhost:8765/index.html","speedButton":3,"cpuSlowdown":4,"seconds":3,"yearsPerSec":150.2,"fps":12.7,"frameGapP95ms":150,"frameGapMaxMs":150,"heapMB":2.9,"ended":false}
+{"label":"第9次 button4 CPU×4","url":"http://localhost:8765/index.html","speedButton":4,"cpuSlowdown":4,"seconds":3,"yearsPerSec":171.2,"fps":10.9,"frameGapP95ms":150,"frameGapMaxMs":183,"heapMB":1,"ended":false}
